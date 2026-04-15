@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Precog v1.0</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    pre { white-space: pre-wrap; word-break: break-word; font-family: Consolas, Monaco, monospace; }
+    .drop-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(59,130,246,0.08);
+      border: 3px dashed rgb(59,130,246);
+      z-index: 9999;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgb(30,64,175);
+      font-weight: 800;
+      font-size: 24px;
+      backdrop-filter: blur(2px);
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div id="app" class="h-screen max-w-[1850px] mx-auto p-3 font-sans flex flex-col gap-3">
+    <div v-if="dragOver" class="drop-overlay">Drop files here</div>
+
+    <div v-if="!hasData"
+         class="flex-1 flex items-center justify-center"
+         @dragenter.prevent="onDragEnter"
+         @dragover.prevent="onDragOver"
+         @dragleave.prevent="onDragLeave"
+         @drop.prevent="handleDrop">
+      <div :class="['w-full max-w-3xl rounded-3xl border-4 border-dashed bg-white shadow-sm p-10 text-center transition-all',
+                    dragOver ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300']">
+        <input id="fileInput" type="file" multiple class="hidden" @change="handleBatchUpload">
+        <label for="fileInput" class="cursor-pointer block">
+          <div class="text-7xl mb-5">👁️</div>
+          <h1 class="text-3xl font-black tracking-tight text-slate-900">Precog v1.0</h1>
+          <p class="mt-3 text-slate-500">Driver Insight & Triage System</p>
+          <p class="mt-2 text-xs text-slate-400">請把 Dowsing 解壓縮後的所有檔案全部拖進來</p>
+        </label>
+      </div>
+    </div>
+
+    <template v-else>
+      <div class="bg-white rounded-3xl shadow-sm border border-slate-200 px-4 py-3 shrink-0">
+        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2">
+          <div>
+            <div class="flex items-center gap-3">
+              <h1 class="text-2xl font-black tracking-tight text-slate-900">Precog</h1>
+              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v1.0</span>
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Driver Insight & Triage System</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button @click="selectedOem = null; selectedPanel='overview'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Overview</button>
+            <button @click="selectedPanel='collection'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Collection Status</button>
+            <button @click="selectedPanel='runlog'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Run Log</button>
+            <button @click="selectedPanel='system'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">System Data</button>
+            <button @click="resetTool" class="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold">Reload</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-3">
+        <div class="xl:col-span-4 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-0 flex flex-col">
+          <div class="p-3 border-b bg-slate-50 space-y-2 shrink-0">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <input v-model.trim="keyword" placeholder="搜尋 oem / inf / provider / device / HWID" class="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+              <select v-model="filterProvider" class="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                <option value="All">All Providers</option>
+                <option v-for="p in providers" :key="p" :value="p">{{ p }}</option>
+              </select>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <button v-for="opt in statusOptions" :key="opt" @click="filterStatus=opt" :class="['rounded-xl px-3 py-2 text-xs font-bold border', filterStatus===opt ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50']">{{ opt }}</button>
+            </div>
+          </div>
+          <div class="p-3 border-b bg-white text-xs text-slate-500 flex items-center justify-between shrink-0">
+            <span>{{ finalFilteredDrivers.length }} / {{ dismDrivers.length }} drivers</span>
+            <span></span>
+          </div>
+          <div class="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-100 min-h-0">
+            <div v-for="d in finalFilteredDrivers" :key="d.publishedName" @click="selectedOem=d; selectedPanel='driver'" :class="['p-4 cursor-pointer border-l-4 transition', selectedOem && selectedOem.publishedName===d.publishedName ? 'bg-blue-50 border-l-blue-600' : 'border-l-transparent hover:bg-slate-50']">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-black text-slate-900 truncate text-sm">{{ d.publishedName }}</div>
+                  <div class="text-sm text-slate-600 truncate">{{ d.originalName }}</div>
+                  <div class="text-[11px] uppercase tracking-widest text-slate-400 mt-1 truncate">{{ d.providerName }}</div>
+                </div>
+                <div class="flex flex-col gap-1 items-end shrink-0">
+                  <span :class="badgeClass(statusLabel(d))" class="px-2 py-1 rounded-full text-[10px] font-black whitespace-nowrap">{{ statusLabel(d) }}</span>
+                  <span v-if="isNonWhql(d)"
+                        class="px-2 py-1 rounded-full text-[10px] font-black bg-yellow-100 text-yellow-700 whitespace-nowrap">
+                    NON-WHQL
+                  </span>
+
+                  <span v-if="checkOemStatus(d).isProblem"
+                        class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 whitespace-nowrap">
+                    DEVICE ERROR
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="xl:col-span-8 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-0 flex flex-col">
+          <div v-if="selectedPanel==='overview'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <div class="xl:col-span-2 rounded-2xl border p-4">
+                <h2 class="text-lg font-black mb-3">System Snapshot</h2>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div class="rounded-xl bg-slate-900 text-white p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Model</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.model || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">SKU</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.sku || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">BIOS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.bios || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">OS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.os || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Secure Boot</div><div :class="['mt-1 text-sm font-bold break-all', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Build / Release</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.build || 'N/A' }}</div></div>
+                </div>
+              </div>
+
+          <div class="xl:col-span-1 rounded-2xl border p-4">
+            <h2 class="text-lg font-black mb-3">Driver Summary</h2>
+
+            <div class="grid grid-cols-2 md:grid-cols-2 gap-3">
+              <div class="rounded-xl border p-3">
+                <div class="text-[10px] text-slate-500">Drivers</div>
+                <div class="text-sm font-black mt-1">
+                  {{ summaryCards.totalDrivers }}
+                </div>
+              </div>
+
+              <div class="rounded-xl border bg-emerald-50 border-emerald-200 p-3">
+                <div class="text-[10px] text-emerald-700">Installed</div>
+                <div class="text-sm font-black mt-1 text-emerald-700">
+                  {{ summaryCards.installed }}
+                </div>
+              </div>
+
+              <div class="rounded-xl border bg-amber-50 border-amber-200 p-3">
+                <div class="text-[10px] text-amber-700">No Matched</div>
+                <div class="text-sm font-black mt-1 text-amber-700">
+                  {{ summaryCards.storeOnly }}
+                </div>
+              </div>
+
+              <div class="rounded-xl border bg-red-50 border-red-200 p-3">
+                <div class="text-[10px] text-red-700">Problem</div>
+                <div class="text-sm font-black mt-1 text-red-700">
+                  {{ summaryCards.problem }}
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <div class="rounded-2xl border p-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-black">Problem Device Summary</h2>
+              <span class="text-xs text-slate-500"></span>
+            </div>
+
+            <div v-if="problemDevicesCombined.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div v-for="(pd,idx) in problemDevicesCombined" :key="idx" class="border border-red-200 bg-red-50 rounded-2xl p-4">
+                <div class="font-black text-slate-900 text-sm">{{ pd.name || pd.description || 'Unknown Device' }}</div>
+                <div class="text-xs text-slate-600 mt-2 break-all">{{ pd.pnpId || pd.instanceId || 'N/A' }}</div>
+                <div class="mt-3 text-sm font-bold text-red-700 break-all">{{ pd.error || pd.problem || 'Device has issue' }}</div>
+              </div>
+            </div>
+
+            <div v-else class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-700 font-bold">
+              目前沒有偵測到 Problem Device。
+            </div>
+          </div>
+          </div>
+
+          <div v-else-if="selectedPanel==='collection'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4">
+            <h2 class="text-lg font-black mb-3">Collection Status</h2>
+            <div v-if="Object.keys(collectionStatus).length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div v-for="(value,key) in collectionStatus" :key="key" class="rounded-2xl border p-4 flex items-center justify-between gap-4">
+                <div class="font-semibold text-slate-700">{{ key }}</div>
+                <span :class="collectionBadgeClass(value)" class="px-3 py-1 rounded-full text-xs font-black">{{ value }}</span>
+              </div>
+            </div>
+            <div v-else class="text-slate-500">未載入 _CollectionStatus.txt</div>
+          </div>
+
+          <div v-else-if="selectedPanel==='runlog'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4">
+            <h2 class="text-lg font-black mb-3">Run Log</h2>
+            <pre class="bg-slate-950 text-emerald-400 rounded-2xl p-4 text-sm">{{ runLogText || '未載入 _RunLog.txt' }}</pre>
+          </div>
+
+          <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+            <div class="rounded-2xl border p-4">
+              <div class="flex items-center justify-between mb-3 gap-3">
+                <h2 class="text-lg font-black">System Summary</h2>
+                <input v-model.trim="jsonFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1">
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                <div v-for="(value,key) in filteredSystemSummary" :key="key" class="rounded-xl bg-slate-50 border p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-widest">{{ key }}</div>
+                  <div class="mt-1 font-semibold break-all">{{ value }}</div>
+                </div>
+              </div>
+              <div v-if="!Object.keys(filteredSystemSummary).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
+            </div>
+
+            <div class="rounded-2xl border p-4">
+            <div class="flex items-center justify-between mb-3 gap-3">
+              <div class="flex items-center gap-2">
+                <h2 class="text-lg font-black">Windows Version (Parsed)</h2>
+                <button
+                  @click="showDecodedReg = !showDecodedReg"
+                  class="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50"
+                >
+                  {{ showDecodedReg ? 'Decoded' : 'Raw' }}
+                </button>
+              </div>
+
+              <input v-model.trim="regFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1">
+            </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                <div v-for="(value,key) in filteredWinReg" :key="key" class="rounded-xl bg-slate-50 border p-3">
+                  <div class="text-[10px] text-slate-400 uppercase tracking-widest">{{ key }}</div>
+                  <div class="mt-1 font-semibold break-all">{{ formatRegValue(key, value) }}</div>
+                </div>
+              </div>
+              <div v-if="!Object.keys(filteredWinReg).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
+            </div>
+          </div>
+
+          <div v-else-if="selectedPanel==='driver' && selectedOem" class="flex-1 min-h-0 flex flex-col">
+            <div class="bg-slate-900 text-white p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 shrink-0">
+              <div>
+                <div class="text-xl font-black tracking-tight">{{ selectedOem.publishedName }}</div>
+                <div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName }}</div>
+                <div class="text-[11px] uppercase tracking-widest text-emerald-400 mt-2">{{ selectedOem.providerName }}</div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span>
+                <span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span>
+                <span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span>
+              </div>
+            </div>
+
+            <div v-if="analyzeDriver(selectedOem).length" class="p-4 space-y-2">
+              <div v-for="(issue, idx) in analyzeDriver(selectedOem)" :key="idx"
+                   :class="[
+                     'px-4 py-2 rounded-xl text-sm font-semibold',
+                     issue.level === 'error' ? 'bg-red-100 text-red-700' :
+                     issue.level === 'warn' ? 'bg-yellow-100 text-yellow-700' :
+                     'bg-slate-100 text-slate-700'
+                   ]">
+                {{ issue.text }}
+              </div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border-b bg-slate-50 shrink-0">
+              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Version</div><div class="font-bold mt-1 text-sm break-all">{{ selectedOem.version || 'N/A' }}</div></div>
+              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Catalog (.cat)</div><div class="font-bold mt-1 text-sm break-all">{{ getCatalogFileName(selectedOem) }}</div></div>
+              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Matched Devices</div><div class="font-bold mt-1 text-sm break-all">{{ matchedPnpDevices.length }}</div></div>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+              <div v-if="matchedPnpDevices.length===0" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-semibold text-sm">目前在系統上沒有找到對應使用這個 OEM INF 的裝置。這通常代表 package 在 driver store 中，但當前沒有 matched device。</div>
+
+              <div v-for="(dev,idx) in matchedPnpDevices" :key="idx" class="rounded-2xl border border-slate-200 overflow-hidden">
+                <div class="p-4 bg-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <div class="font-bold text-slate-900 text-sm">{{ dev.description || 'Unknown Device' }}</div>
+                    <div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <span :class="driverStatusClass(dev.specificInfStatus)" class="px-3 py-1 rounded-full text-[11px] font-black">{{ dev.specificInfStatus || 'N/A' }}</span>
+                    <span v-if="getProblemData(dev.instanceId)" class="px-3 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-700">Problem Device</span>
+                  </div>
+                </div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="space-y-3 text-sm">
+                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Class</div><div class="font-semibold mt-1">{{ dev.deviceClass || 'N/A' }}</div></div>
+                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Release Date</div><div class="font-semibold mt-1">{{ dev.specificInfDate || 'N/A' }}</div></div>
+                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Signer</div><div class="font-semibold mt-1 break-all">{{ dev.specificInfSigner || 'N/A' }}</div></div>
+                    <div v-if="getProblemData(dev.instanceId)" class="rounded-2xl border border-red-200 bg-red-50 p-3">
+                      <div class="text-[10px] uppercase tracking-widest text-red-500 font-bold">System Diagnostic</div>
+                      <div class="mt-1 font-bold text-red-700 text-sm">{{ getProblemData(dev.instanceId).error || getProblemData(dev.instanceId).problem }}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] text-slate-400 uppercase tracking-widest">Hardware IDs</div>
+                    <pre class="mt-2 rounded-2xl bg-slate-100 p-3 text-sm min-h-[160px]">{{ (dev.hwids || []).join('\n') || 'N/A' }}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="flex-1 flex items-center justify-center text-slate-400 font-semibold">請從左側選擇一個 driver，或切換到 Overview / Collection Status。</div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <script>
+    window.addEventListener('dragover', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) { e.preventDefault(); });
+
+    const { createApp, ref, computed } = Vue;
+
+    createApp({
+      setup() {
+        const dragOver = ref(false);
+        const dragCounter = ref(0);
+        const loadedFileNames = ref([]);
+        const selectedPanel = ref('overview');
+        const keyword = ref('');
+        const filterProvider = ref('All');
+        const filterStatus = ref('All');
+        const selectedOem = ref(null);
+        const jsonFilter = ref('');
+        const regFilter = ref('');
+
+        const dismDrivers = ref([]);
+        const pnpDevices = ref([]);
+        const problemDevices = ref([]);
+        const pnpProblemDevices = ref([]);
+        const catalogMap = ref({});
+        const sysInfo = ref({});
+        const systemSummary = ref({});
+        const collectionStatus = ref({});
+        const runLogText = ref('');
+        const rawWindowsVersionReg = ref('');
+        const rawOSVersion = ref('');
+        const showDecodedReg = ref(true);
+
+        const statusOptions = ['All', 'Installed', 'No Device', 'Problem'];
+
+        const hasData = computed(() => {
+          return !!(
+            dismDrivers.value.length ||
+            pnpDevices.value.length ||
+            Object.keys(sysInfo.value).length ||
+            Object.keys(systemSummary.value).length
+          );
+        });
+
+        const providers = computed(() => {
+          return [...new Set(dismDrivers.value.map(d => d.providerName).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        });
+
+        const winRegParsed = computed(() => parseWindowsVersionReg(rawWindowsVersionReg.value));
+
+        const filteredSystemSummary = computed(() => {
+          const q = jsonFilter.value.toLowerCase();
+          return Object.fromEntries(
+            Object.entries(systemSummary.value).filter(([k, v]) => !q || k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q))
+          );
+        });
+
+        const hiddenWinRegKeys = new Set([
+          'DigitalProductId',
+          'DigitalProductId4'
+        ]);
+
+        const filteredWinReg = computed(() => {
+          const q = regFilter.value.toLowerCase();
+
+          return Object.fromEntries(
+            Object.entries(winRegParsed.value).filter(([k, v]) => {
+              if (hiddenWinRegKeys.has(k)) return false;
+              return !q || k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q);
+            })
+          );
+        });
+        const systemHeadline = computed(() => {
+          const src = Object.keys(systemSummary.value).length ? systemSummary.value : sysInfo.value;
+          return {
+            model: src.SystemModel || src.Model || src.ComputerModel || src.systemModel || '',
+            sku: src.SystemSKU || src.SKU || src.systemSKU || '',
+            bios: src.BIOSVersion || src.BIOS || src.biosVersion || '',
+            os: src.OSName || src.OSVersion || src.osName || rawOSVersion.value.split(/\r?\n/).find(Boolean) || '',
+            secureBoot: src.SecureBoot || src.SecureBootState || src.secureBoot || '',
+            build: [winRegParsed.value.DisplayVersion || winRegParsed.value.ReleaseId, winRegParsed.value.CurrentBuild, winRegParsed.value.UBR].filter(Boolean).join(' / ')
+          };
+        });
+
+        const secureBootClass = computed(() => {
+          const v = (systemHeadline.value.secureBoot || '').toLowerCase();
+          if (v.includes('on')) return 'text-emerald-600';
+          if (v.includes('off')) return 'text-amber-600';
+          return 'text-slate-700';
+        });
+
+        const problemDevicesCombined = computed(() => {
+          const map = new Map();
+          [...problemDevices.value, ...pnpProblemDevices.value].forEach((d, idx) => {
+            const baseId = (d.pnpId || d.instanceId || '').toLowerCase().trim();
+            const name = (d.name || d.description || '').toLowerCase().trim();
+            const problem = (d.error || d.problem || '').toLowerCase().trim();
+            const key = baseId || [name, problem].filter(Boolean).join('|') || String(idx);
+            if (!map.has(key)) map.set(key, d);
+          });
+          return [...map.values()];
+        });
+
+        const summaryCards = computed(() => {
+          let installed = 0, storeOnly = 0, problemDrivers = 0, nonWhql = 0;
+          dismDrivers.value.forEach(d => {
+            const st = checkOemStatus(d);
+            if (st.isInstalled) installed++;
+            else if (!st.hasDevice) storeOnly++;
+            if (st.isProblem) problemDrivers++;
+            if (isNonWhql(d)) nonWhql++;
+          });
+          return {
+            totalDrivers: dismDrivers.value.length,
+            installed,
+            storeOnly,
+            problem: problemDevicesCombined.value.length + nonWhql
+          };
+        });
+
+        const finalFilteredDrivers = computed(() => {
+          const q = keyword.value.toLowerCase();
+          return dismDrivers.value.filter(d => {
+            const providerMatch = filterProvider.value === 'All' || d.providerName === filterProvider.value;
+            const st = checkOemStatus(d);
+            const signer = getSignerSummary(d).toLowerCase();
+            const matched = getMatchedPnpDevices(d);
+            const searchText = [
+              d.publishedName, d.originalName, d.providerName, d.version, signer,
+              ...matched.map(m => [m.description, m.instanceId, m.deviceClass, (m.hwids || []).join(' ')].join(' '))
+            ].join(' ').toLowerCase();
+
+            const keywordMatch = !q || searchText.includes(q);
+            let statusMatch = true;
+            if (filterStatus.value === 'Installed') statusMatch = st.isInstalled;
+            if (filterStatus.value === 'No Device') statusMatch = !st.isInstalled;
+            if (filterStatus.value === 'Problem') {
+                statusMatch = st.isProblem || isNonWhql(d);
+        }
+            return providerMatch && keywordMatch && statusMatch;
+          }).sort((a, b) => {
+            const na = parseInt((a.publishedName || '').replace(/\D/g, ''), 10);
+            const nb = parseInt((b.publishedName || '').replace(/\D/g, ''), 10);
+            if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+            return (a.publishedName || '').localeCompare(b.publishedName || '');
+          });
+        });
+
+        const matchedPnpDevices = computed(() => selectedOem.value ? getMatchedPnpDevices(selectedOem.value) : []);
+
+        function resetTool() { location.reload(); }
+
+        function onDragEnter(e) {
+          if (e && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+            dragCounter.value += 1;
+            dragOver.value = true;
+          }
+        }
+
+        function onDragOver(e) {
+          if (e && e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+          dragOver.value = true;
+        }
+
+        function onDragLeave() {
+          dragCounter.value -= 1;
+          if (dragCounter.value <= 0) {
+            dragCounter.value = 0;
+            dragOver.value = false;
+          }
+        }
+
+        function handleBatchUpload(e) {
+          const files = Array.from((e.target && e.target.files) || []);
+          if (files.length) processFiles(files);
+        }
+
+        function handleDrop(e) {
+          dragCounter.value = 0;
+          dragOver.value = false;
+          const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+          if (files.length) processFiles(files);
+        }
+
+        function processFiles(files) {
+          loadedFileNames.value = files.map(f => f.name).sort((a, b) => a.localeCompare(b));
+          files.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = evt => {
+              const name = file.name.toLowerCase();
+              const text = evt.target.result;
+              try {
+                if (name.includes('_dism_driverinfo')) parseDism(text);
+                else if (name.includes('_pnpdeviceinfo')) parsePnp(text);
+                else if (name.includes('_sysinfo')) parseSys(text);
+                else if (name.includes('_catalogmap')) parseCatalog(text);
+                else if (name.includes('_pnpproblemdevices')) parsePnpProblem(text);
+                else if (name.includes('_collectionstatus')) parseCollectionStatus(text);
+                else if (name.includes('_systemsummary.json')) parseSystemSummary(text);
+                else if (name.includes('_runlog')) runLogText.value = text;
+                else if (name.includes('_windowsversionreg')) rawWindowsVersionReg.value = text;
+                else if (name.includes('_osversion')) rawOSVersion.value = text;
+              } catch (err) {
+                console.error('Parse error in', file.name, err);
+              }
+            };
+            reader.readAsText(file);
+          });
+        }
+
+        function parseDism(text) {
+          const lines = text.split(/\r?\n/), res = [];
+          let started = false;
+          for (const line of lines) {
+            if (line.includes('Published Name')) { started = true; continue; }
+            if (!started || !line.trim() || line.includes('---')) continue;
+            const cols = line.split('|').map(c => c.trim());
+            if (cols.length >= 7 && /^oem\d+\.inf$/i.test(cols[0])) {
+              res.push({ publishedName: cols[0], originalName: cols[1], providerName: cols[4], className: cols[3], version: cols[6], date: cols[5] });
+            }
+          }
+          dismDrivers.value = res;
+        }
+
+        function parsePnp(text) {
+          const blocks = text.split(/Instance ID:\s+/), res = [];
+          blocks.forEach(block => {
+            if (!block.trim() || block.includes('Microsoft PnP Utility')) return;
+            const lines = block.split(/\r?\n/);
+            const dev = { instanceId: lines[0].trim(), description: '', deviceClass: '', hwids: [], matchingDrivers: [] };
+            lines.forEach(line => {
+              if (line.startsWith('Device Description:')) dev.description = line.split(/:(.+)/)[1]?.trim() || '';
+              if (line.startsWith('Class Name:')) dev.deviceClass = line.split(/:(.+)/)[1]?.trim() || '';
+            });
+            const hwMatch = block.match(/Hardware IDs:([\s\S]*?)(?=Compatible IDs:|Matching Drivers:|$)/);
+            if (hwMatch) dev.hwids = hwMatch[1].split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+            const matchPart = block.split('Matching Drivers:')[1];
+            if (matchPart) {
+              const driverBlocks = matchPart.split(/^\s+Driver Name:/m);
+              driverBlocks.forEach(db => {
+                if (!db.trim()) return;
+                const dl = db.split(/\r?\n/);
+                const info = { name: dl[0].trim().toLowerCase(), status: '', ver: '', date: '', signer: '' };
+                dl.forEach(line => {
+                  if (line.includes('Driver Status:')) info.status = line.split(/:(.+)/)[1]?.trim() || '';
+                  if (line.includes('Driver Version:')) {
+                    const part = line.split(/:(.+)/)[1]?.trim() || '';
+                    const pieces = part.split(/\s+/);
+                    info.date = pieces[0] || '';
+                    info.ver = pieces.slice(1).join(' ');
+                  }
+                  if (line.includes('Signer Name:')) info.signer = line.split(/:(.+)/)[1]?.trim() || '';
+                });
+                dev.matchingDrivers.push(info);
+              });
+            }
+            res.push(dev);
+          });
+          pnpDevices.value = res;
+        }
+
+        function parseSys(text) {
+          const info = {}, pDevs = [];
+          let section = '';
+          text.split(/\r?\n/).forEach(line => {
+            if (line.startsWith('[') && line.endsWith(']')) { section = line.trim(); return; }
+            const parts = line.split('\t').map(s => s.trim());
+            if (section === '[System Summary]' && parts.length >= 2) {
+              if (parts[0] === 'OS Name') info.OSName = parts[1];
+              if (parts[0] === 'System Model') info.SystemModel = parts[1];
+              if (parts[0] === 'System SKU') info.SystemSKU = parts[1];
+              if (parts[0] === 'BIOS Version/Date') info.BIOSVersion = parts[1];
+              if (parts[0] === 'Total Physical Memory') info.TotalRAM = parts[1];
+              if (parts[0] === 'Secure Boot State') info.SecureBoot = parts[1];
+            }
+            if (section === '[Problem Devices]' && parts.length >= 3) {
+              if (parts[1] !== 'PNP Device ID' && parts[0] !== 'Device') pDevs.push({ name: parts[0], pnpId: parts[1], error: 'Error Code: ' + parts[2] });
+            }
+          });
+          sysInfo.value = info;
+          problemDevices.value = pDevs;
+        }
+
+        function parseCatalog(text) {
+          const lines = text.split(/\r?\n/), map = {};
+          lines.forEach((line, idx) => {
+            if (idx === 0 || !line.trim()) return;
+            const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+            if (cols.length >= 2) map[cols[0].toLowerCase()] = cols[1];
+          });
+          catalogMap.value = map;
+        }
+
+        function parsePnpProblem(text) {
+          const blocks = text.split(/Instance ID:\s+/), res = [];
+          blocks.forEach(block => {
+            if (!block.trim() || block.includes('Microsoft PnP Utility')) return;
+            const lines = block.split(/\r?\n/);
+            const item = { instanceId: lines[0].trim(), description: '', problem: '' };
+            lines.forEach(line => {
+              if (line.startsWith('Device Description:')) item.description = line.split(/:(.+)/)[1]?.trim() || '';
+              if (line.startsWith('Problem Code:')) item.problem = 'Problem Code: ' + (line.split(/:(.+)/)[1]?.trim() || '');
+              if (line.startsWith('Problem:')) item.problem = 'Problem: ' + (line.split(/:(.+)/)[1]?.trim() || '');
+            });
+            if (item.instanceId || item.description || item.problem) res.push(item);
+          });
+          pnpProblemDevices.value = res;
+        }
+
+        function parseCollectionStatus(text) {
+          const map = {};
+          text.split(/\r?\n/).forEach(line => {
+            if (!line.includes('=')) return;
+            const idx = line.indexOf('=');
+            const k = line.slice(0, idx).trim();
+            const v = line.slice(idx + 1).trim();
+            if (k && !['ComputerName', 'Timestamp', 'OutputFolder'].includes(k)) map[k] = v;
+          });
+          collectionStatus.value = map;
+        }
+
+        function parseSystemSummary(text) {
+          try { systemSummary.value = JSON.parse(text); }
+          catch { systemSummary.value = {}; }
+        }
+
+        function parseWindowsVersionReg(text) {
+          const obj = {};
+          text.split(/\r?\n/).forEach(line => {
+            const m = line.match(/^\s*(\w+)\s+REG_\w+\s+(.+)$/);
+            if (m) obj[m[1]] = m[2].trim();
+          });
+          return obj;
+        }
+
+        function getMatchedPnpDevices(d) {
+          if (!d) return [];
+          const target = d.publishedName.toLowerCase();
+          return pnpDevices.value
+            .filter(dev => dev.matchingDrivers.some(m => m.name === target))
+            .map(dev => {
+              const m = dev.matchingDrivers.find(x => x.name === target) || {};
+              return { ...dev, specificInfStatus: m.status, specificInfVersion: m.ver, specificInfDate: m.date, specificInfSigner: m.signer };
+            });
+        }
+
+        function getProblemData(instanceId) {
+          return problemDevicesCombined.value.find(pd => (pd.pnpId || pd.instanceId || '').toLowerCase() === (instanceId || '').toLowerCase());
+        }
+
+        function getErrorsByInf(originInfName) {
+          if (!originInfName) return [];
+          const prefix = originInfName.split('.')[0].toLowerCase();
+          return problemDevicesCombined.value.filter(pd => {
+            const id = (pd.pnpId || pd.instanceId || '').toLowerCase();
+            const name = (pd.name || pd.description || '').toLowerCase();
+            return id.includes(prefix) || name.includes(prefix);
+          });
+        }
+
+        function checkOemStatus(d) {
+          const matches = getMatchedPnpDevices(d);
+
+          const hasDevice = matches.length > 0;
+
+          const isInstalled = hasDevice && matches.some(dev => {
+            const s = (dev.specificInfStatus || '').toLowerCase();
+            return s.includes('best ranked') || s.includes('installed');
+          });
+
+          const isProblem = matches.some(dev => !!getProblemData(dev.instanceId));
+
+          return { isInstalled, isProblem, hasDevice };
+        }
+
+        function getSignerSummary(d) {
+          const signers = [...new Set(getMatchedPnpDevices(d).map(m => m.specificInfSigner).filter(Boolean))];
+          return signers.length ? signers.join(' | ') : 'N/A (No matched device)';
+        }
+
+        function getCatalogFileName(d) {
+          const full = catalogMap.value[((d && d.publishedName) || '').toLowerCase()] || '';
+          if (!full) return 'N/A';
+          const normalized = full.replace(/\\/g, '/');
+          const name = normalized.split('/').pop() || full;
+          return /\.cat$/i.test(name) ? name : 'N/A';
+        }
+
+        function isWhqlSigner(signer) {
+          return /Microsoft Windows Hardware Compatibility Publisher/i.test(signer || '');
+        }
+
+        function isNonWhql(d) {
+          const signers = getMatchedPnpDevices(d).map(m => m.specificInfSigner).filter(Boolean);
+          return signers.length > 0 && signers.some(s => !isWhqlSigner(s));
+        }
+
+        function statusLabel(d) { return checkOemStatus(d).hasDevice ? 'INSTALLED' : 'NO DEVICE'; }
+        function badgeClass(label) {
+          if (label === 'INSTALLED') return 'bg-emerald-100 text-emerald-700';
+          if (label === 'NO DEVICE') return 'bg-amber-100 text-amber-700';
+          return 'bg-slate-100 text-slate-700';
+        }
+        function driverStatusClass(status) {
+          const s = (status || '').toLowerCase();
+          if (s.includes('best ranked') || s.includes('installed')) return 'bg-emerald-100 text-emerald-700';
+          if (!s) return 'bg-slate-100 text-slate-700';
+          return 'bg-red-100 text-red-700';
+        }
+        function collectionBadgeClass(value) {
+          const v = (value || '').toUpperCase();
+          if (v === 'OK') return 'bg-emerald-100 text-emerald-700';
+          if (v === 'NOT_FOUND' || v === 'SKIP') return 'bg-amber-100 text-amber-700';
+          if (v === 'FAIL' || v === 'EMPTY') return 'bg-red-100 text-red-700';
+          return 'bg-slate-100 text-slate-700';
+        }
+
+    function analyzeDriver(d) {
+      const status = checkOemStatus(d);
+      const matches = getMatchedPnpDevices(d);
+      const issues = [];
+
+      // ❌ 沒有 device
+      if (!status.hasDevice) {
+        issues.push({
+          level: 'info',
+          text: 'No bound device (ORPHAN)'
+        });
+      }
+
+      // ⚠️ Non-WHQL
+      if (isNonWhql(d)) {
+        issues.push({
+          level: 'warn',
+          text: 'Non-WHQL driver (potential risk)'
+        });
+      }
+
+      // ❌ Device Error
+      matches.forEach(dev => {
+        const problem = getProblemData(dev.instanceId);
+        if (problem) {
+          issues.push({
+            level: 'error',
+            text: `Device error: ${problem.error || problem.problem}`
+          });
+        }
+      });
+
+      // ⚠️ Outranked
+      if (status.hasDevice && !status.isInstalled) {
+        issues.push({
+          level: 'warn',
+          text: 'Driver is outranked (not active)'
+        });
+      }
+
+      return issues;
+    }
+
+        function formatRegValue(key, value) {
+      if (value == null || value === '') return 'N/A';
+
+      if (!showDecodedReg.value) return value;
+
+      if (key === 'UBR') {
+        const n = parseInt(String(value), 16);
+        return Number.isNaN(n) ? value : String(n);
+      }
+
+      if (key === 'InstallDate') {
+        const n = parseInt(String(value), 16);
+        if (Number.isNaN(n)) return value;
+        return new Date(n * 1000).toLocaleString();
+      }
+
+      if (key === 'InstallTime') {
+        const n = parseInt(String(value), 16);
+        return Number.isNaN(n) ? value : String(n);
+      }
+
+      return value;
+    }
+
+
+        return {
+          dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem,
+          dismDrivers, pnpDevices, problemDevices, pnpProblemDevices, catalogMap, sysInfo, systemSummary,
+          collectionStatus, runLogText, rawWindowsVersionReg, statusOptions, hasData, providers, systemHeadline,
+          secureBootClass, problemDevicesCombined, summaryCards, finalFilteredDrivers, matchedPnpDevices,
+          resetTool, handleBatchUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData,
+          getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName,
+          jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, 
+          showDecodedReg, formatRegValue,
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
