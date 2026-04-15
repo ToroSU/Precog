@@ -1,14 +1,14 @@
-# 🔮 Precog & 🧭 Dowsing
+# Precog & Dowsing
 
 A lightweight driver / device diagnostic toolkit for Windows platforms.
 
 ---
 
-## 📌 Overview
+## Overview
 
 This project consists of two tools:
 
-### 🔮 Precog (Viewer)
+### Precog (Viewer)
 - HTML-based visualization tool
 - Drag & drop logs to analyze system / driver status
 - Focus on:
@@ -16,7 +16,7 @@ This project consists of two tools:
   - Device matching status
   - Problem detection (PnP / Non-WHQL / No Device)
 
-### 🧭 Dowsing (Collector)
+### Dowsing (Collector)
 - PowerShell-based log collection tool
 - Designed for frontline / remote debugging
 - One-click execution to collect system information
@@ -24,7 +24,7 @@ This project consists of two tools:
 
 ---
 
-## 🎯 Purpose
+## Purpose
 
 Designed to simplify debugging workflow between:
 
@@ -37,12 +37,12 @@ Instead of:
 - Collecting scattered logs  
 - Interpreting raw data  
 
-👉 Use **Dowsing** to collect  
-👉 Use **Precog** to visualize  
+Use **Dowsing** to collect  
+Use **Precog** to visualize  
 
 ---
 
-## ⚙️ Workflow
+## Workflow
 
 1. Run Dowsing on target machine:
 
@@ -57,7 +57,7 @@ Instead of:
 
 ---
 
-## 🔍 Key Features
+## Key Features
 
 ### Driver Analysis
 - Installed / No Device classification  
@@ -82,7 +82,7 @@ Instead of:
 
 ---
 
-## 🧠 Naming Concept
+## Naming Concept
 
 - **Precog** → Predict / analyze system state  
 - **Dowsing** → Locate hidden signals (logs)  
@@ -94,7 +94,7 @@ Inspired by:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 ```
 Precog/
 ├─ Precog_v1.0.html # Viewer
@@ -105,7 +105,7 @@ Precog/
 
 ---
 
-## 🚀 Roadmap
+## Roadmap
 
 - [ ] Match-level detection (Exact / Compatible / Wildcard)  
 - [ ] Driver ranking visualization  
@@ -115,7 +115,7 @@ Precog/
 
 ---
 
-## 🧪 Status
+## Status
 
 Current version: **v1.0**
 
@@ -125,7 +125,7 @@ Current version: **v1.0**
 
 ---
 
-## ⚠️ Notes
+## Notes
 
 - Designed for internal debugging / engineering usage  
 - Some data (e.g. registry fields) are filtered for readability  
@@ -133,12 +133,12 @@ Current version: **v1.0**
 
 ---
 
-## 👤 Author
+## Author
 
 Toro
 
 ---
 
-## 📄 License
+## License
 
 Currently not specified
