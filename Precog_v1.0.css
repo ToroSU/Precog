@@ -1,0 +1,21 @@
+
+html, body { height: 100%; margin: 0; overflow: hidden; }
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+pre { white-space: pre-wrap; word-break: break-word; font-family: Consolas, Monaco, monospace; }
+.drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(59,130,246,0.08);
+    border: 3px dashed rgb(59,130,246);
+    z-index: 9999;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(30,64,175);
+    font-weight: 800;
+    font-size: 24px;
+    backdrop-filter: blur(2px);
+}
