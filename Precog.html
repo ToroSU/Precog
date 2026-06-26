@@ -3,14 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Precog v1.0</title>
+  <title>Precog</title>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./Precog.css" />
-
 </head>
 <body class="bg-slate-100 text-slate-800">
-  <div id="app" class="h-screen max-w-[1850px] mx-auto p-3 font-sans flex flex-col gap-3">
+  <div id="app" class="h-screen max-w-[1900px] mx-auto p-3 font-sans flex flex-col gap-3">
     <div v-if="dragOver" class="drop-overlay">Drop files here</div>
 
     <div v-if="!hasData"
@@ -19,13 +18,12 @@
          @dragover.prevent="onDragOver"
          @dragleave.prevent="onDragLeave"
          @drop.prevent="handleDrop">
-      <div :class="['w-full max-w-3xl rounded-3xl border-4 border-dashed bg-white shadow-sm p-10 text-center transition-all',
-                    dragOver ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300']">
+      <div :class="['w-full max-w-3xl rounded-3xl border-4 border-dashed bg-white shadow-sm p-10 text-center transition-all', dragOver ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300']">
         <input id="fileInput" type="file" multiple class="hidden" @change="handleBatchUpload">
         <label for="fileInput" class="cursor-pointer block">
           <div class="text-7xl mb-5">👁️</div>
-          <h1 class="text-3xl font-black tracking-tight text-slate-900">Precog v1.0</h1>
-          <p class="mt-3 text-slate-500">Driver Insight & Triage System</p>
+          <h1 class="text-3xl font-black tracking-tight text-slate-900">Precog</h1>
+          <p class="mt-3 text-slate-500">Driver / Device / Platform Insight & Triage System</p>
           <p class="mt-2 text-xs text-slate-400">請把 Dowsing 解壓縮後的所有檔案全部拖進來</p>
         </label>
       </div>
@@ -37,21 +35,162 @@
           <div>
             <div class="flex items-center gap-3">
               <h1 class="text-2xl font-black tracking-tight text-slate-900">Precog</h1>
-              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v1.0</span>
+              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0T</span>
             </div>
-            <p class="text-sm text-slate-500 mt-1">Driver Insight & Triage System</p>
+            <p class="text-sm text-slate-500 mt-1">Driver / Device / Platform Insight & Triage System</p>
           </div>
           <div class="flex flex-wrap gap-2">
-            <button @click="selectedOem = null; selectedPanel='overview'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Overview</button>
-            <button @click="selectedPanel='collection'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Collection Status</button>
-            <button @click="selectedPanel='runlog'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">Run Log</button>
-            <button @click="selectedPanel='system'" class="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50 text-sm font-semibold">System Data</button>
+            <button @click="selectedOem = null; selectedPanel='overview'" :class="navClass('overview')">Driver Status</button>
+            <button @click="selectedPanel='deviceManager'" :class="navClass('deviceManager')">Device Manager</button>
+            <button @click="selectedPanel='platform'" :class="navClass('platform')">Platform Health</button>
+            <button @click="selectedPanel='collection'" :class="navClass('collection')">Collection Status</button>
+            <button @click="selectedPanel='runlog'" :class="navClass('runlog')">Run Log</button>
+            <button @click="selectedPanel='system'" :class="navClass('system')">System Data</button>
             <button @click="resetTool" class="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold">Reload</button>
           </div>
         </div>
       </div>
 
-      <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-3">
+      <div v-if="selectedPanel==='deviceManager'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <div class="p-4 border-b bg-slate-50 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between shrink-0">
+          <div>
+            <h2 class="text-lg font-black">Device Manager</h2>
+            <p class="text-xs text-slate-500 mt-1">Class-based full PnP device view. Select an OEM INF in Driver Status first to highlight bound devices.</p>
+          </div>
+          <div class="flex flex-wrap gap-2 items-center">
+            <input v-model.trim="deviceKeyword" placeholder="Filter device / HWID / driver" class="rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200 min-w-[260px]">
+            <button @click="deviceOnlyProblem=!deviceOnlyProblem" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyProblem ? 'bg-red-600 text-white border-red-600' : 'bg-white hover:bg-slate-50']">Problems only</button>
+            <button @click="deviceOnlyHighlighted=!deviceOnlyHighlighted" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyHighlighted ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-slate-50']">Selected INF only</button>
+          </div>
+        </div>
+        <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
+          <div class="xl:col-span-5 border-r min-h-0 overflow-y-auto custom-scrollbar p-3 space-y-3">
+            <div v-for="group in filteredDeviceGroups" :key="group.className" class="rounded-2xl border overflow-hidden">
+              <div @click="toggleDeviceClass(group.className)" class="bg-slate-50 px-4 py-2 font-black text-sm border-b flex justify-between items-center cursor-pointer select-none hover:bg-slate-100">
+                <span><span class="inline-block w-4 text-slate-400">{{ isDeviceClassCollapsed(group.className) ? '▶' : '▼' }}</span>{{ group.className }}</span>
+                <span class="text-xs text-slate-400">{{ group.devices.length }}</span>
+              </div>
+              <div v-show="!isDeviceClassCollapsed(group.className)" class="divide-y divide-slate-100">
+                <div v-for="dev in group.devices" :key="dev.instanceId" @click="selectedDevice=dev"
+                     :class="['p-3 text-sm cursor-pointer border-l-4', selectedDevice && selectedDevice.instanceId===dev.instanceId ? 'bg-blue-50 border-l-blue-600' : isHighlightedDevice(dev) ? 'bg-blue-50/60 border-l-blue-400' : dev.isProblem ? 'bg-red-50 border-l-red-400' : dev.isGhost ? 'bg-amber-50/60 border-l-amber-300' : 'border-l-transparent hover:bg-slate-50']">
+                  <div class="flex items-start justify-between gap-2">
+                    <div :class="['font-bold min-w-0 truncate', dev.isGhost ? 'text-slate-500' : 'text-slate-900']">{{ dev.name }}</div>
+                    <span v-if="dev.isProblem" class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 shrink-0">PROBLEM</span>
+                    <span v-else-if="dev.isGhost" class="px-2 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 shrink-0">GHOST</span>
+                    <span v-else-if="dev.status && dev.status !== 'OK'" class="px-2 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ dev.status }}</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div>
+                  <div class="mt-2 text-[11px] text-slate-500 break-all"><b>Driver:</b> {{ dev.activeDriver || 'N/A' }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-if="!filteredDeviceGroups.length" class="text-slate-400 font-semibold text-center py-10">No matched devices.</div>
+          </div>
+          <div class="xl:col-span-7 min-h-0 overflow-y-auto custom-scrollbar p-4">
+            <div v-if="selectedDevice" class="space-y-4">
+              <div class="rounded-2xl border p-4">
+                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                  <div>
+                    <h3 class="text-xl font-black text-slate-900">{{ selectedDevice.name }}</h3>
+                    <div class="text-xs text-slate-500 mt-2 break-all">{{ selectedDevice.instanceId }} <a v-if="getDeviceHuntInfo(selectedDevice.instanceId)" :href="getDeviceHuntInfo(selectedDevice.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                  </div>
+                  <button v-if="getDriverObjectByName(selectedDevice.activeDriver)" @click="openDriverFromDevice(selectedDevice)" class="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-bold">Open Driver Detail</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="rounded-xl border p-3"><div class="label">Class</div><div class="value">{{ selectedDevice.className || 'N/A' }}</div></div>
+                <div class="rounded-xl border p-3"><div class="label">Status</div><div :class="['value', selectedDevice.isProblem ? 'text-red-700' : selectedDevice.isGhost ? 'text-amber-700' : 'text-emerald-700']">{{ selectedDevice.isGhost ? 'GHOST / CM_PROB_PHANTOM' : (selectedDevice.problem || selectedDevice.status || 'OK') }}</div></div>
+                <div class="rounded-xl border p-3"><div class="label">Active / Best Driver</div><div class="value break-all">{{ selectedDevice.activeDriver || 'N/A' }}</div></div>
+                <div class="rounded-xl border p-3"><div class="label">Signer</div><div class="value break-all">{{ selectedDevice.signer || 'N/A' }}</div></div>
+                <div class="rounded-xl border p-3"><div class="label">Version</div><div class="value">{{ selectedDevice.version || 'N/A' }}</div></div>
+                <div class="rounded-xl border p-3"><div class="label">Driver Status</div><div class="value break-all">{{ selectedDevice.activeDriverStatus || 'N/A' }}</div></div>
+              </div>
+              <div class="rounded-2xl border p-4">
+                <h3 class="font-black mb-2">Hardware IDs</h3>
+                <pre class="bg-slate-100 rounded-xl p-3 text-xs min-h-[120px]">{{ (selectedDevice.hwids || []).join('\n') || 'N/A' }}</pre>
+              </div>
+              <div class="rounded-2xl border p-4">
+                <h3 class="font-black mb-2">Matching Drivers</h3>
+                <div v-if="selectedDevice.matchingDrivers && selectedDevice.matchingDrivers.length" class="space-y-2">
+                  <div v-for="m in selectedDevice.matchingDrivers" :key="m.name + m.status" class="rounded-xl border p-3 text-xs">
+                    <div class="font-black">{{ m.name }}</div>
+                    <div class="mt-1 text-slate-500">{{ m.status || 'N/A' }} | {{ m.date || '' }} {{ m.ver || '' }} | {{ m.signer || 'N/A' }}</div>
+                  </div>
+                </div>
+                <div v-else class="text-slate-400 text-sm">No matching driver details loaded.</div>
+              </div>
+            </div>
+            <div v-else class="h-full flex items-center justify-center text-slate-400 font-semibold">Select a device.</div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="selectedPanel==='platform'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-y-auto custom-scrollbar p-4 space-y-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-black">Platform Health</h2>
+            <p class="text-xs text-slate-500 mt-1">A compact view for power, display, Type-C, vendor-related devices, and raw report availability.</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div v-for="card in platformHealthCards" :key="card.title" class="rounded-2xl border p-4">
+            <div class="flex items-center justify-between gap-2">
+              <div class="font-black text-sm">{{ card.title }}</div>
+              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', card.status === 'OK' || card.status === 'Loaded' ? 'bg-emerald-100 text-emerald-700' : card.status === 'Warn' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600']">{{ card.status }}</span>
+            </div>
+            <div class="mt-2 text-xs text-slate-500 break-all">{{ card.detail }}</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-2">PowerCfg /a</h3>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[280px] overflow-auto custom-scrollbar">{{ rawPowerCfgA || 'Not loaded' }}</pre>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-2">Power Requests</h3>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[280px] overflow-auto custom-scrollbar">{{ rawPowerCfgRequests || 'Not loaded' }}</pre>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-2">Last Wake</h3>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[180px] overflow-auto custom-scrollbar">{{ rawPowerCfgLastWake || 'Not loaded' }}</pre>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-2">Wake Armed</h3>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[180px] overflow-auto custom-scrollbar">{{ rawPowerCfgWakeArmed || 'Not loaded' }}</pre>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-3">Display / Audio / Camera</h3>
+            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
+              <div v-for="row in displayAudioCameraRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
+                <div class="font-bold">{{ row.FriendlyName || row.Name || 'Unknown' }}</div>
+                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-3">USB / Type-C / UCSI</h3>
+            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
+              <div v-for="row in usbTypecRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
+                <div class="font-bold">{{ row.FriendlyName || 'Unknown' }}</div>
+                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <h3 class="font-black mb-3">Vendor Related Devices</h3>
+            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
+              <div v-for="row in vendorRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
+                <div class="font-bold">{{ row.FriendlyName || 'Unknown' }}</div>
+                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-3">
         <div class="xl:col-span-4 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-0 flex flex-col">
           <div class="p-3 border-b bg-slate-50 space-y-2 shrink-0">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -67,7 +206,7 @@
           </div>
           <div class="p-3 border-b bg-white text-xs text-slate-500 flex items-center justify-between shrink-0">
             <span>{{ finalFilteredDrivers.length }} / {{ dismDrivers.length }} drivers</span>
-            <span></span>
+            <span>{{ loadedFileNames.length }} files loaded</span>
           </div>
           <div class="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-100 min-h-0">
             <div v-for="d in finalFilteredDrivers" :key="d.publishedName" @click="selectedOem=d; selectedPanel='driver'" :class="['p-4 cursor-pointer border-l-4 transition', selectedOem && selectedOem.publishedName===d.publishedName ? 'bg-blue-50 border-l-blue-600' : 'border-l-transparent hover:bg-slate-50']">
@@ -79,15 +218,8 @@
                 </div>
                 <div class="flex flex-col gap-1 items-end shrink-0">
                   <span :class="badgeClass(statusLabel(d))" class="px-2 py-1 rounded-full text-[10px] font-black whitespace-nowrap">{{ statusLabel(d) }}</span>
-                  <span v-if="isNonWhql(d)"
-                        class="px-2 py-1 rounded-full text-[10px] font-black bg-yellow-100 text-yellow-700 whitespace-nowrap">
-                    NON-WHQL
-                  </span>
-
-                  <span v-if="checkOemStatus(d).isProblem"
-                        class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 whitespace-nowrap">
-                    DEVICE ERROR
-                  </span>
+                  <span v-if="isNonWhql(d)" class="px-2 py-1 rounded-full text-[10px] font-black bg-yellow-100 text-yellow-700 whitespace-nowrap">NON-WHQL</span>
+                  <span v-if="checkOemStatus(d).isProblem" class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 whitespace-nowrap">DEVICE ERROR</span>
                 </div>
               </div>
             </div>
@@ -100,81 +232,58 @@
               <div class="xl:col-span-2 rounded-2xl border p-4">
                 <h2 class="text-lg font-black mb-3">System Snapshot</h2>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div class="rounded-xl bg-slate-900 text-white p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Model</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.model || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">SKU</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.sku || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">BIOS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.bios || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">OS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.os || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Secure Boot</div><div :class="['mt-1 text-sm font-bold break-all', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="text-[10px] uppercase tracking-widest text-slate-400">Build / Release</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.build || 'N/A' }}</div></div>
+                  <div class="rounded-xl bg-slate-900 text-white p-3"><div class="card-label dark">Model</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.model || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="card-label">SKU</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.sku || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="card-label">BIOS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.bios || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="card-label">OS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.os || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="card-label">Secure Boot</div><div :class="['mt-1 text-sm font-bold break-all', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
+                  <div class="rounded-xl border p-3"><div class="card-label">Build / Release</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.build || 'N/A' }}</div></div>
                 </div>
               </div>
-
-          <div class="xl:col-span-1 rounded-2xl border p-4">
-            <h2 class="text-lg font-black mb-3">Driver Summary</h2>
-
-            <div class="grid grid-cols-2 md:grid-cols-2 gap-3">
-              <div class="rounded-xl border p-3">
-                <div class="text-[10px] text-slate-500">Drivers</div>
-                <div class="text-sm font-black mt-1">
-                  {{ summaryCards.totalDrivers }}
-                </div>
-              </div>
-
-              <div class="rounded-xl border bg-emerald-50 border-emerald-200 p-3">
-                <div class="text-[10px] text-emerald-700">Installed</div>
-                <div class="text-sm font-black mt-1 text-emerald-700">
-                  {{ summaryCards.installed }}
-                </div>
-              </div>
-
-              <div class="rounded-xl border bg-amber-50 border-amber-200 p-3">
-                <div class="text-[10px] text-amber-700">No Matched</div>
-                <div class="text-sm font-black mt-1 text-amber-700">
-                  {{ summaryCards.storeOnly }}
-                </div>
-              </div>
-
-              <div class="rounded-xl border bg-red-50 border-red-200 p-3">
-                <div class="text-[10px] text-red-700">Problem</div>
-                <div class="text-sm font-black mt-1 text-red-700">
-                  {{ summaryCards.problem }}
+              <div class="xl:col-span-1 rounded-2xl border p-4">
+                <h2 class="text-lg font-black mb-3">Driver Summary</h2>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="summary-box"><div class="text-[10px] text-slate-500">Drivers</div><div class="text-sm font-black mt-1">{{ summaryCards.totalDrivers }}</div></div>
+                  <div class="summary-box green"><div class="text-[10px] text-emerald-700">Installed</div><div class="text-sm font-black mt-1 text-emerald-700">{{ summaryCards.installed }}</div></div>
+                  <div class="summary-box amber"><div class="text-[10px] text-amber-700">No Matched</div><div class="text-sm font-black mt-1 text-amber-700">{{ summaryCards.storeOnly }}</div></div>
+                  <div class="summary-box red"><div class="text-[10px] text-red-700">Problem</div><div class="text-sm font-black mt-1 text-red-700">{{ summaryCards.problem }}</div></div>
                 </div>
               </div>
             </div>
-          </div>
-          </div>
-
-          <div class="rounded-2xl border p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-black">Problem Device Summary</h2>
-              <span class="text-xs text-slate-500"></span>
-            </div>
-
-            <div v-if="problemDevicesCombined.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div v-for="(pd,idx) in problemDevicesCombined" :key="idx" class="border border-red-200 bg-red-50 rounded-2xl p-4">
-                <div class="font-black text-slate-900 text-sm">{{ pd.name || pd.description || 'Unknown Device' }}</div>
-                <div class="text-xs text-slate-600 mt-2 break-all">
-                  {{ pd.pnpId || pd.instanceId || 'N/A' }}
-
-                  <template v-if="getDeviceHuntInfo(pd.pnpId || pd.instanceId)">
-                    <a
-                      :href="getDeviceHuntInfo(pd.pnpId || pd.instanceId).url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap"
-                    >
-                      [DeviceHunt]
-                    </a>
-                  </template>
+            <div class="rounded-2xl border p-4">
+              <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <h2 class="text-lg font-black">Problem Device Summary</h2>
+                <div class="flex gap-2">
+                  <button @click="selectedProblemTab='problem'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='problem' ? 'bg-red-600 text-white border-red-600' : 'bg-white hover:bg-slate-50']">Problem Device ({{ problemDevicesCombined.length }})</button>
+                  <button @click="selectedProblemTab='ghost'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='ghost' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white hover:bg-slate-50']">Ghost Device ({{ ghostDevices.length }})</button>
                 </div>
-                <div class="mt-3 text-sm font-bold text-red-700 break-all">{{ pd.error || pd.problem || 'Device has issue' }}</div>
+              </div>
+
+              <div v-if="selectedProblemTab==='problem'">
+                <div v-if="problemDevicesCombined.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div v-for="(pd,idx) in problemDevicesCombined" :key="idx" class="border border-red-200 bg-red-50 rounded-2xl p-4">
+                    <div class="font-black text-slate-900 text-sm">{{ pd.name || pd.description || pd.FriendlyName || 'Unknown Device' }}</div>
+                    <div class="text-xs text-slate-600 mt-2 break-all">{{ pd.pnpId || pd.instanceId || pd.InstanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId)" :href="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                    <div class="mt-3 text-sm font-bold text-red-700 break-all">{{ pd.error || pd.problem || pd.Problem || pd.ConfigManagerErrorCode || 'Device has issue' }}</div>
+                  </div>
+                </div>
+                <div v-else class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-700 font-bold">目前沒有偵測到 Problem Device。</div>
+              </div>
+
+              <div v-else>
+                <div v-if="ghostDevices.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div v-for="(gd,idx) in ghostDevices" :key="idx" class="border border-amber-200 bg-amber-50 rounded-2xl p-4">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="font-black text-slate-900 text-sm">{{ gd.FriendlyName || gd.name || gd.description || 'Unknown Ghost Device' }}</div>
+                      <span class="px-2 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 shrink-0">GHOST</span>
+                    </div>
+                    <div class="text-xs text-slate-600 mt-2 break-all">{{ gd.InstanceId || gd.pnpId || gd.instanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId)" :href="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                    <div class="mt-3 text-sm font-bold text-amber-700 break-all">{{ gd.Problem || gd.ConfigManagerErrorCode || 'CM_PROB_PHANTOM' }}</div>
+                  </div>
+                </div>
+                <div v-else class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 font-bold">目前沒有偵測到 Ghost Device。</div>
               </div>
             </div>
-
-            <div v-else class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-700 font-bold">
-              目前沒有偵測到 Problem Device。
-            </div>
-          </div>
           </div>
 
           <div v-else-if="selectedPanel==='collection'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4">
@@ -195,38 +304,16 @@
 
           <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
             <div class="rounded-2xl border p-4">
-              <div class="flex items-center justify-between mb-3 gap-3">
-                <h2 class="text-lg font-black">System Summary</h2>
-                <input v-model.trim="jsonFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1">
-              </div>
+              <div class="flex items-center justify-between mb-3 gap-3"><h2 class="text-lg font-black">System Summary</h2><input v-model.trim="jsonFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                <div v-for="(value,key) in filteredSystemSummary" :key="key" class="rounded-xl bg-slate-50 border p-3">
-                  <div class="text-[10px] text-slate-400 uppercase tracking-widest">{{ key }}</div>
-                  <div class="mt-1 font-semibold break-all">{{ value }}</div>
-                </div>
+                <div v-for="(value,key) in filteredSystemSummary" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ value }}</div></div>
               </div>
               <div v-if="!Object.keys(filteredSystemSummary).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
             </div>
-
             <div class="rounded-2xl border p-4">
-            <div class="flex items-center justify-between mb-3 gap-3">
-              <div class="flex items-center gap-2">
-                <h2 class="text-lg font-black">Windows Version (Parsed)</h2>
-                <button
-                  @click="showDecodedReg = !showDecodedReg"
-                  class="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50"
-                >
-                  {{ showDecodedReg ? 'Decoded' : 'Raw' }}
-                </button>
-              </div>
-
-              <input v-model.trim="regFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1">
-            </div>
+              <div class="flex items-center justify-between mb-3 gap-3"><div class="flex items-center gap-2"><h2 class="text-lg font-black">Windows Version (Parsed)</h2><button @click="showDecodedReg = !showDecodedReg" class="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50">{{ showDecodedReg ? 'Decoded' : 'Raw' }}</button></div><input v-model.trim="regFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                <div v-for="(value,key) in filteredWinReg" :key="key" class="rounded-xl bg-slate-50 border p-3">
-                  <div class="text-[10px] text-slate-400 uppercase tracking-widest">{{ key }}</div>
-                  <div class="mt-1 font-semibold break-all">{{ formatRegValue(key, value) }}</div>
-                </div>
+                <div v-for="(value,key) in filteredWinReg" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ formatRegValue(key, value) }}</div></div>
               </div>
               <div v-if="!Object.keys(filteredWinReg).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
             </div>
@@ -234,69 +321,21 @@
 
           <div v-else-if="selectedPanel==='driver' && selectedOem" class="flex-1 min-h-0 flex flex-col">
             <div class="bg-slate-900 text-white p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 shrink-0">
-              <div>
-                <div class="text-xl font-black tracking-tight">{{ selectedOem.publishedName }}</div>
-                <div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName }}</div>
-                <div class="text-[11px] uppercase tracking-widest text-emerald-400 mt-2">{{ selectedOem.providerName }}</div>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span>
-                <span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span>
-                <span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span>
-              </div>
+              <div><div class="text-xl font-black tracking-tight">{{ selectedOem.publishedName }}</div><div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName }}</div><div class="text-[11px] uppercase tracking-widest text-emerald-400 mt-2">{{ selectedOem.providerName }}</div></div>
+              <div class="flex flex-wrap gap-2"><span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span><span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span><span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span></div>
             </div>
-
-            <div v-if="analyzeDriver(selectedOem).length" class="p-4 space-y-2">
-              <div v-for="(issue, idx) in analyzeDriver(selectedOem)" :key="idx"
-                   :class="[
-                     'px-4 py-2 rounded-xl text-sm font-semibold',
-                     issue.level === 'error' ? 'bg-red-100 text-red-700' :
-                     issue.level === 'warn' ? 'bg-yellow-100 text-yellow-700' :
-                     'bg-slate-100 text-slate-700'
-                   ]">
-                {{ issue.text }}
-              </div>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border-b bg-slate-50 shrink-0">
-              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Version</div><div class="font-bold mt-1 text-sm break-all">{{ selectedOem.version || 'N/A' }}</div></div>
-              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Catalog (.cat)</div><div class="font-bold mt-1 text-sm break-all">{{ getCatalogFileName(selectedOem) }}</div></div>
-              <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Matched Devices</div><div class="font-bold mt-1 text-sm break-all">{{ matchedPnpDevices.length }}</div></div>
-            </div>
-
+            <div v-if="analyzeDriver(selectedOem).length" class="p-4 space-y-2"><div v-for="(issue, idx) in analyzeDriver(selectedOem)" :key="idx" :class="['px-4 py-2 rounded-xl text-sm font-semibold', issue.level === 'error' ? 'bg-red-100 text-red-700' : issue.level === 'warn' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700']">{{ issue.text }}</div></div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border-b bg-slate-50 shrink-0"><div><div class="card-label">Version</div><div class="font-bold mt-1 text-sm break-all">{{ selectedOem.version || 'N/A' }}</div></div><div><div class="card-label">Catalog (.cat)</div><div class="font-bold mt-1 text-sm break-all">{{ getCatalogFileName(selectedOem) }}</div></div><div><div class="card-label">Matched Devices</div><div class="font-bold mt-1 text-sm break-all">{{ matchedPnpDevices.length }}</div></div></div>
             <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
               <div v-if="matchedPnpDevices.length===0" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-semibold text-sm">目前在系統上沒有找到對應使用這個 OEM INF 的裝置。這通常代表 package 在 driver store 中，但當前沒有 matched device。</div>
-
               <div v-for="(dev,idx) in matchedPnpDevices" :key="idx" class="rounded-2xl border border-slate-200 overflow-hidden">
-                <div class="p-4 bg-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <div>
-                    <div class="font-bold text-slate-900 text-sm">{{ dev.description || 'Unknown Device' }}</div>
-                    <div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <span :class="driverStatusClass(dev.specificInfStatus)" class="px-3 py-1 rounded-full text-[11px] font-black">{{ dev.specificInfStatus || 'N/A' }}</span>
-                    <span v-if="getProblemData(dev.instanceId)" class="px-3 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-700">Problem Device</span>
-                  </div>
-                </div>
-                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div class="space-y-3 text-sm">
-                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Class</div><div class="font-semibold mt-1">{{ dev.deviceClass || 'N/A' }}</div></div>
-                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Release Date</div><div class="font-semibold mt-1">{{ dev.specificInfDate || 'N/A' }}</div></div>
-                    <div><div class="text-[10px] text-slate-400 uppercase tracking-widest">Signer</div><div class="font-semibold mt-1 break-all">{{ dev.specificInfSigner || 'N/A' }}</div></div>
-                    <div v-if="getProblemData(dev.instanceId)" class="rounded-2xl border border-red-200 bg-red-50 p-3">
-                      <div class="text-[10px] uppercase tracking-widest text-red-500 font-bold">System Diagnostic</div>
-                      <div class="mt-1 font-bold text-red-700 text-sm">{{ getProblemData(dev.instanceId).error || getProblemData(dev.instanceId).problem }}</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="text-[10px] text-slate-400 uppercase tracking-widest">Hardware IDs</div>
-                    <pre class="mt-2 rounded-2xl bg-slate-100 p-3 text-sm min-h-[160px]">{{ (dev.hwids || []).join('\n') || 'N/A' }}</pre>
-                  </div>
-                </div>
+                <div class="p-4 bg-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><div class="font-bold text-slate-900 text-sm">{{ dev.description || 'Unknown Device' }}</div><div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div></div><div class="flex flex-wrap gap-2"><span :class="driverStatusClass(dev.specificInfStatus)" class="px-3 py-1 rounded-full text-[11px] font-black">{{ dev.specificInfStatus || 'N/A' }}</span><span v-if="getProblemData(dev.instanceId)" class="px-3 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-700">Problem Device</span></div></div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4"><div class="space-y-3 text-sm"><div><div class="card-label">Class</div><div class="font-semibold mt-1">{{ dev.deviceClass || 'N/A' }}</div></div><div><div class="card-label">Release Date</div><div class="font-semibold mt-1">{{ dev.specificInfDate || 'N/A' }}</div></div><div><div class="card-label">Signer</div><div class="font-semibold mt-1 break-all">{{ dev.specificInfSigner || 'N/A' }}</div></div><div v-if="getProblemData(dev.instanceId)" class="rounded-2xl border border-red-200 bg-red-50 p-3"><div class="text-[10px] uppercase tracking-widest text-red-500 font-bold">System Diagnostic</div><div class="mt-1 font-bold text-red-700 text-sm">{{ getProblemData(dev.instanceId).error || getProblemData(dev.instanceId).problem }}</div></div></div><div><div class="card-label">Hardware IDs</div><pre class="mt-2 rounded-2xl bg-slate-100 p-3 text-sm min-h-[160px]">{{ (dev.hwids || []).join('\n') || 'N/A' }}</pre></div></div>
               </div>
             </div>
           </div>
 
-          <div v-else class="flex-1 flex items-center justify-center text-slate-400 font-semibold">請從左側選擇一個 driver，或切換到 Overview / Collection Status。</div>
+          <div v-else class="flex-1 flex items-center justify-center text-slate-400 font-semibold">請從左側選擇一個 driver，或切換到 Driver Status / Device Manager / Platform Health。</div>
         </div>
       </div>
     </template>
