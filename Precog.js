@@ -8,7 +8,7 @@ createApp({
     const dragOver = ref(false);
     const dragCounter = ref(0);
     const loadedFileNames = ref([]);
-    const selectedPanel = ref('overview');
+    const selectedPanel = ref('system');
     const keyword = ref('');
     const filterProvider = ref('All');
     const filterStatus = ref('All');
@@ -47,10 +47,25 @@ createApp({
     const displayAudioCameraRows = ref([]);
     const usbTypecRows = ref([]);
     const vendorRows = ref([]);
+    const hardwareInventory = ref({});
+    const installedAppsWin32 = ref([]);
+    const installedAppsAppx = ref([]);
+    const provisionedApps = ref([]);
+    const startupApps = ref([]);
+    const installedUpdates = ref([]);
+    const servicesRows = ref([]);
+    const scheduledTasksRows = ref([]);
+    const showMicrosoftApps = ref(false);
+    const rawDefaultAppsText = ref('');
+    const rawPowerPlanText = ref('');
+    const rawIPConfigText = ref('');
+    const rawPnpInterfacesText = ref('');
+    const rawScheduledTasksText = ref('');
+
 
     const statusOptions = ['All', 'Installed', 'No Device', 'Problem'];
 
-    const hasData = computed(() => !!(dismDrivers.value.length || pnpDevices.value.length || pnpCsvDevices.value.length || Object.keys(systemSummary.value).length || Object.keys(sysInfo.value).length));
+    const hasData = computed(() => !!(dismDrivers.value.length || pnpDevices.value.length || pnpCsvDevices.value.length || Object.keys(systemSummary.value).length || Object.keys(sysInfo.value).length || Object.keys(hardwareInventory.value).length));
 
     function navClass(panel) {
       return ['px-4 py-2 rounded-xl border text-sm font-semibold', selectedPanel.value === panel ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50'].join(' ');
@@ -123,6 +138,31 @@ createApp({
       });
       return { totalDrivers: dismDrivers.value.length, installed, storeOnly, problem: problemDevicesCombined.value.length + nonWhql };
     });
+
+
+    const collectionOkCount = computed(() => Object.values(collectionStatus.value).filter(v => String(v).toUpperCase() === 'OK').length);
+    const collectionMissingCount = computed(() => Object.values(collectionStatus.value).filter(v => String(v).toUpperCase() !== 'OK').length);
+    const systemHealthLoadedCount = computed(() => [rawPowerCfgA.value, rawPowerCfgRequests.value, rawPowerCfgLastWake.value, rawPowerCfgWakeArmed.value, rawSleepStudyText.value].filter(Boolean).length);
+    const systemInfoGeneratedTime = computed(() => {
+      const hw = hardwareInventory.value || {};
+      return hw.GeneratedAt || systemSummary.value.Timestamp || systemSummary.value.TimeStamp || 'N/A';
+    });
+
+    function firstConfigValue(sectionTitle) {
+      const section = platformConfigurationSections.value.find(s => s.title === sectionTitle);
+      if (!section || !section.rows || !section.rows.length) return 'N/A';
+      const row = section.rows[0];
+      return [row.name, row.detail].filter(Boolean).join(' | ') || 'N/A';
+    }
+
+    const hardwareSummaryRows = computed(() => [
+      { label: 'CPU', value: firstConfigValue('CPU') },
+      { label: 'Memory', value: firstConfigValue('Memory') || (systemSummary.value.TotalPhysicalMemoryGB ? `${systemSummary.value.TotalPhysicalMemoryGB} GB` : 'N/A') },
+      { label: 'Storage', value: firstConfigValue('Storage') },
+      { label: 'Graphics', value: firstConfigValue('Graphics') },
+      { label: 'Display', value: firstConfigValue('Display / Panel') },
+      { label: 'Battery', value: firstConfigValue('Battery') }
+    ]);
 
     const finalFilteredDrivers = computed(() => {
       const q = keyword.value.toLowerCase();
@@ -247,15 +287,251 @@ createApp({
       ];
     });
 
+    function asArray(value) {
+      if (!value) return [];
+      return Array.isArray(value) ? value : [value];
+    }
+
+    function cleanText(value) {
+      if (value === null || value === undefined || value === '') return '';
+      return String(value).trim();
+    }
+
+    function joinDetails(values) {
+      return values.map(cleanText).filter(Boolean).join(' | ');
+    }
+
+    function bytesToGB(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      return `${(n / 1024 / 1024 / 1024).toFixed(n > 100 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
+    }
+
+    function normalizeAppKey(value) {
+      return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    }
+
+    function appDisplayName(app) {
+      return app.DisplayName || app.Name || app.DisplayName || app.PackageFullName || app.PackageName || app.PSChildName || 'Unknown App';
+    }
+
+    function appPublisher(app) {
+      return app.Publisher || app.PublisherDisplayName || '';
+    }
+
+    function isMicrosoftApp(app) {
+      const name = appDisplayName(app).toLowerCase();
+      const publisher = appPublisher(app).toLowerCase();
+      const packageName = String(app.PackageName || app.PackageFullName || app.PackageFamilyName || '').toLowerCase();
+      return publisher.includes('microsoft') ||
+             publisher.includes('windows') ||
+             packageName.includes('microsoft') ||
+             name.startsWith('microsoft ') ||
+             name.startsWith('windows ') ||
+             name.includes('microsoft.') ||
+             name.includes('windows.');
+    }
+
+    function appVersion(app) {
+      return app.DisplayVersion || app.Version || '';
+    }
+
+    const combinedInstalledApps = computed(() => {
+      const map = new Map();
+
+      function addApp(row, source) {
+        const name = appDisplayName(row);
+        const version = appVersion(row);
+        const publisher = appPublisher(row);
+        const family = row.PackageFamilyName || row.PackageName || row.PackageFullName || row.PSChildName || '';
+        const key = normalizeAppKey(name || family);
+        if (!key) return;
+
+        const current = map.get(key);
+        const item = {
+          name,
+          version,
+          publisher,
+          source,
+          packageName: row.PackageFullName || row.PackageName || row.PackageFamilyName || '',
+          installLocation: row.InstallLocation || '',
+          raw: row,
+          isMicrosoft: isMicrosoftApp(row)
+        };
+
+        if (!current) {
+          map.set(key, item);
+        } else {
+          const sources = new Set(String(current.source).split(' + ').concat(source));
+          current.source = [...sources].filter(Boolean).join(' + ');
+          current.version = current.version || version;
+          current.publisher = current.publisher || publisher;
+          current.packageName = current.packageName || item.packageName;
+          current.installLocation = current.installLocation || item.installLocation;
+          current.isMicrosoft = current.isMicrosoft || item.isMicrosoft;
+        }
+      }
+
+      installedAppsWin32.value.forEach(r => addApp(r, 'Win32'));
+      installedAppsAppx.value.forEach(r => addApp(r, 'Appx'));
+      provisionedApps.value.forEach(r => addApp(r, 'Provisioned'));
+
+      return [...map.values()]
+        .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    const filteredStartupApps = computed(() => {
+      return startupApps.value
+        .map(r => ({ ...r, isMicrosoft: isMicrosoftApp({ DisplayName: r.Name, Publisher: r.Command }) }))
+        .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft)
+        .sort((a, b) => String(a.Name || '').localeCompare(String(b.Name || '')));
+    });
+
+    const operationsLogCards = computed(() => [
+      { title: 'Installed Updates', count: installedUpdates.value.length, kind: 'table' },
+      { title: 'Services', count: servicesRows.value.length, kind: 'table' },
+      { title: 'Startup Apps', count: startupApps.value.length, kind: 'table' },
+      { title: 'Scheduled Tasks', count: scheduledTasksRows.value.length, kind: 'table' },
+      { title: 'Power Plan', count: rawPowerPlanText.value ? rawPowerPlanText.value.split(/\r?\n/).filter(Boolean).length : 0, kind: 'text' },
+      { title: 'IPConfig', count: rawIPConfigText.value ? rawIPConfigText.value.split(/\r?\n/).filter(Boolean).length : 0, kind: 'text' },
+      { title: 'PnP Interfaces', count: rawPnpInterfacesText.value ? rawPnpInterfacesText.value.split(/\r?\n/).filter(Boolean).length : 0, kind: 'text' },
+      { title: 'Default Apps', count: rawDefaultAppsText.value ? rawDefaultAppsText.value.split(/\r?\n/).filter(Boolean).length : 0, kind: 'text' }
+    ]);
+
+    function makeConfigRow(name, details = [], meta = []) {
+      return {
+        name: cleanText(name) || 'Unknown',
+        detail: joinDetails(details),
+        meta: joinDetails(meta)
+      };
+    }
+
+    const platformConfigurationSections = computed(() => {
+      const hw = hardwareInventory.value || {};
+      const sections = [];
+
+      const cpuRows = asArray(hw.CPU).map(cpu => makeConfigRow(
+        cpu.Name,
+        [cpu.NumberOfCores && cpu.NumberOfLogicalProcessors ? `${cpu.NumberOfCores}C / ${cpu.NumberOfLogicalProcessors}T` : (cpu.Cores && cpu.Threads ? `${cpu.Cores}C / ${cpu.Threads}T` : ''), cpu.MaxClockSpeed ? `${cpu.MaxClockSpeed} MHz` : (cpu.MaxClockMHz ? `${cpu.MaxClockMHz} MHz` : ''), cpu.Manufacturer],
+        [cpu.SocketDesignation || cpu.Socket]
+      ));
+      sections.push({ title: 'CPU', badge: cpuRows.length ? `${cpuRows.length}` : '0', rows: cpuRows });
+
+      const mem = hw.Memory || {};
+      const memoryRows = asArray(mem.Modules).map(m => makeConfigRow(
+        [m.Manufacturer, m.PartNumber].filter(Boolean).join(' ') || m.Slot || m.Bank,
+        [m.CapacityGB ? `${m.CapacityGB} GB` : bytesToGB(m.Capacity), m.ConfiguredClockSpeedMHz ? `${m.ConfiguredClockSpeedMHz} MHz` : (m.ConfiguredClockSpeed ? `${m.ConfiguredClockSpeed} MHz` : (m.SpeedMHz ? `${m.SpeedMHz} MHz` : (m.Speed ? `${m.Speed} MHz` : ''))), m.Slot || m.Bank],
+        [m.SerialNumber]
+      ));
+      sections.push({ title: 'Memory', badge: mem.TotalGB ? `${mem.TotalGB} GB` : `${memoryRows.length}`, rows: memoryRows });
+
+      const storage = hw.Storage || {};
+      const storageRows = asArray(storage.PhysicalDisks).map(d => makeConfigRow(
+        d.FriendlyName || d.Model,
+        [d.SizeGB ? `${d.SizeGB} GB` : bytesToGB(d.Size), d.BusType || d.InterfaceType, d.MediaType, d.HealthStatus],
+        [d.SerialNumber]
+      ));
+      sections.push({ title: 'Storage', badge: storageRows.length ? `${storageRows.length}` : '0', rows: storageRows });
+
+      const display = hw.Display || {};
+      const monitorRows = asArray(display.Monitors).map(m => makeConfigRow(
+        m.DisplayName || m.UserFriendlyName || m.Model || [m.Manufacturer, m.PanelCode || m.ProductCode || m.ManufacturerCode].filter(Boolean).join(' ') || 'Monitor',
+        [m.Active === true ? 'Active' : (m.Active === false ? 'Inactive' : ''), m.Manufacturer || m.ManufacturerCode, m.Model || m.PanelCode || m.ProductCode],
+        [m.InstanceName]
+      ));
+      sections.push({ title: 'Display / Panel', badge: monitorRows.length ? `${monitorRows.length}` : '0', rows: monitorRows });
+
+      const gpuRows = asArray(hw.Graphics).map(g => makeConfigRow(
+        g.Name,
+        [g.DriverVersion, g.VideoProcessor, g.AdapterRAMGB ? `${g.AdapterRAMGB} GB VRAM` : '', g.CurrentHorizontalResolution && g.CurrentVerticalResolution ? `${g.CurrentHorizontalResolution}x${g.CurrentVerticalResolution}` : ''],
+        [g.PNPDeviceID]
+      ));
+      sections.push({ title: 'Graphics', badge: gpuRows.length ? `${gpuRows.length}` : '0', rows: gpuRows });
+
+      const network = hw.Network || {};
+      const networkRows = asArray(network.Adapters).map(n => makeConfigRow(
+        n.DisplayName || n.InterfaceDescription || n.NetConnectionID || n.Name,
+        [n.Type, n.Status, n.LinkSpeed, n.Manufacturer, n.AdapterType, n.NetEnabled === true ? 'Enabled' : (n.NetEnabled === false ? 'Disabled' : '')],
+        [n.MacAddress || n.MACAddress, n.InterfaceGuid, n.PNPDeviceID]
+      ));
+      sections.push({ title: 'Network', badge: networkRows.length ? `${networkRows.length}` : '0', rows: networkRows });
+
+      const bluetoothRows = asArray(network.Bluetooth).map(b => makeConfigRow(
+        b.FriendlyName,
+        [b.Status, b.Problem],
+        [b.InstanceId]
+      ));
+      sections.push({ title: 'Bluetooth', badge: bluetoothRows.length ? `${bluetoothRows.length}` : '0', rows: bluetoothRows });
+
+      const audioRows = asArray(hw.Audio).map(a => makeConfigRow(
+        a.FriendlyName,
+        [a.Status, a.Problem],
+        [a.InstanceId]
+      ));
+      sections.push({ title: 'Audio', badge: audioRows.length ? `${audioRows.length}` : '0', rows: audioRows });
+
+      const cameraRows = asArray(hw.Camera).map(c => makeConfigRow(
+        c.FriendlyName,
+        [c.Class, c.Status, c.Problem],
+        [c.InstanceId]
+      ));
+      sections.push({ title: 'Camera', badge: cameraRows.length ? `${cameraRows.length}` : '0', rows: cameraRows });
+
+      const batteryRows = asArray(hw.Battery).map(b => makeConfigRow(
+        b.Name || b.DeviceID,
+        [b.Manufacturer, b.EstimatedChargeRemaining !== null && b.EstimatedChargeRemaining !== undefined ? `${b.EstimatedChargeRemaining}%` : '', b.BatteryStatus ? `Status ${b.BatteryStatus}` : ''],
+        [b.DeviceID]
+      ));
+      sections.push({ title: 'Battery', badge: batteryRows.length ? `${batteryRows.length}` : '0', rows: batteryRows });
+
+      const input = hw.Input || {};
+      const inputRows = asArray(input.HID).slice(0, 50).map(i => makeConfigRow(
+        i.FriendlyName,
+        [i.Class, i.Status, i.Problem],
+        [i.InstanceId]
+      ));
+      sections.push({ title: 'Input / HID', badge: inputRows.length ? `${inputRows.length}` : '0', rows: inputRows });
+
+      const usbRows = asArray(hw.USB).slice(0, 80).map(u => makeConfigRow(
+        u.FriendlyName,
+        [u.Class, u.Status, u.Problem],
+        [u.InstanceId]
+      ));
+      sections.push({ title: 'USB', badge: usbRows.length ? `${usbRows.length}` : '0', rows: usbRows });
+
+      const tpm = asArray(hw.Security && hw.Security.TPM)[0] || asArray(hw.TPM)[0];
+      const securityRows = tpm ? [makeConfigRow('TPM', [tpm.TpmPresent ? 'Present' : 'Not present', tpm.TpmReady ? 'Ready' : 'Not ready', tpm.ManufacturerIdTxt, tpm.SpecVersion], [tpm.ManufacturerVersion])] : [];
+      sections.push({ title: 'Security', badge: securityRows.length ? `${securityRows.length}` : '0', rows: securityRows });
+
+      return sections;
+    });
+
+    const platformConfigurationHeadline = computed(() => {
+      const hw = hardwareInventory.value || {};
+      const system = hw.System || {};
+      return {
+        model: [system.Manufacturer, system.Model].filter(Boolean).join(' ') || system.SystemSKU || 'N/A',
+        sku: system.SystemSKU || 'N/A',
+        bios: system.BIOSVersion || 'N/A',
+        generatedAt: hw.Timestamp || hw.GeneratedAt || 'N/A'
+      };
+    });
+
     function resetTool() { location.reload(); }
     function onDragEnter(e) { if (e && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragCounter.value += 1; dragOver.value = true; } }
     function onDragOver(e) { if (e && e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dragOver.value = true; }
     function onDragLeave() { dragCounter.value -= 1; if (dragCounter.value <= 0) { dragCounter.value = 0; dragOver.value = false; } }
     function handleBatchUpload(e) { const files = Array.from((e.target && e.target.files) || []); if (files.length) processFiles(files); }
+    function openFolderPicker() {
+      const input = document.getElementById('folderInput');
+      if (input) input.click();
+    }
     function handleDrop(e) { dragCounter.value = 0; dragOver.value = false; const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if (files.length) processFiles(files); }
 
     function processFiles(files) {
-      loadedFileNames.value = files.map(f => f.name).sort((a, b) => a.localeCompare(b));
+      loadedFileNames.value = files.map(f => f.webkitRelativePath || f.name).sort((a, b) => a.localeCompare(b));
+      selectedPanel.value = 'system';
       files.forEach(file => {
         const reader = new FileReader();
         reader.onload = evt => {
@@ -284,6 +560,19 @@ createApp({
             else if (name.includes('_display_audio_camera_system')) displayAudioCameraRows.value = parseCsv(text);
             else if (name.includes('_usb_typec_ucsi')) usbTypecRows.value = parseCsv(text);
             else if (name.includes('_vendor_related_devices')) vendorRows.value = parseCsv(text);
+            else if (name.includes('_hardwareinventory.json')) parseHardwareInventory(text);
+            else if (name.includes('_installedapps_win32')) installedAppsWin32.value = parseCsv(text);
+            else if (name.includes('_installedapps_appx')) installedAppsAppx.value = parseCsv(text);
+            else if (name.includes('_provisionedapps')) provisionedApps.value = parseCsv(text);
+            else if (name.includes('_startupapps')) startupApps.value = parseCsv(text);
+            else if (name.includes('_installedupdates')) installedUpdates.value = parseCsv(text);
+            else if (name.includes('_services')) servicesRows.value = parseCsv(text);
+            else if (name.includes('_scheduledtasks.csv')) scheduledTasksRows.value = parseCsv(text);
+            else if (name.includes('_scheduledtasks.txt')) rawScheduledTasksText.value = text;
+            else if (name.includes('_powerplan')) rawPowerPlanText.value = text;
+            else if (name.includes('_ipconfig')) rawIPConfigText.value = text;
+            else if (name.includes('_pnpinterfaces')) rawPnpInterfacesText.value = text;
+            else if (name.includes('_defaultappassociations')) rawDefaultAppsText.value = text;
           } catch (err) { console.error('Parse error in', file.name, err); }
         };
         reader.readAsText(file);
@@ -391,6 +680,7 @@ createApp({
     }
 
     function parseSystemSummary(text) { try { systemSummary.value = JSON.parse(text); } catch { systemSummary.value = {}; } }
+    function parseHardwareInventory(text) { try { hardwareInventory.value = JSON.parse(text); } catch { hardwareInventory.value = {}; } }
     function parseWindowsVersionReg(text) { const obj = {}; text.split(/\r?\n/).forEach(line => { const m = line.match(/^\s*(\w+)\s+REG_\w+\s+(.+)$/); if (m) obj[m[1]] = m[2].trim(); }); return obj; }
 
     function parseCsv(text) {
@@ -505,6 +795,6 @@ createApp({
     function firstMeaningfulLine(text) { return (text || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || 'Loaded'; }
     function getDxDiagHeadline(text) { const model = (text.match(/System Model:\s*(.+)/i) || [])[1]; const os = (text.match(/Operating System:\s*(.+)/i) || [])[1]; return [model, os].filter(Boolean).join(' | ') || 'Display / audio diagnostics available'; }
 
-    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, resetTool, handleBatchUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass };
+    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, operationsLogCards };
   }
 }).mount('#app');

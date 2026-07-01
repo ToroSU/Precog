@@ -12,3 +12,43 @@ pre { white-space: pre-wrap; word-break: break-word; font-family: Consolas, Mona
 .summary-box.green { background: rgb(236 253 245); border-color: rgb(167 243 208); }
 .summary-box.amber { background: rgb(255 251 235); border-color: rgb(253 230 138); }
 .summary-box.red { background: rgb(254 242 242); border-color: rgb(254 202 202); }
+
+/* System Info dashboard prototype */
+.system-side-title {
+  font-size: 11px;
+  font-weight: 900;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin: 0 0 6px 8px;
+}
+.system-side-item,
+.system-side-active {
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 4px;
+}
+.system-side-item {
+  background: transparent;
+}
+.system-side-active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-right: 3px solid #2563eb;
+}
+.system-overview-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: #fff;
+  padding: 18px;
+  min-height: 130px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.system-overview-card.red { background: linear-gradient(180deg, #fff 0%, #fff7f7 100%); }
+.system-overview-card.amber { background: linear-gradient(180deg, #fff 0%, #fffbeb 100%); }
+.system-overview-card.blue { background: linear-gradient(180deg, #fff 0%, #eff6ff 100%); }
+.system-overview-card.green { background: linear-gradient(180deg, #fff 0%, #ecfdf5 100%); }
+.system-overview-card.purple { background: linear-gradient(180deg, #fff 0%, #f5f3ff 100%); }
