@@ -31,14 +31,21 @@ OUTPUT_FILES = {
     "DXDiag Report": "_DxDiag.txt",
     "Catalog Map": "_CatalogMap.csv",
     "System Summary JSON": "_SystemSummary.json",
+    "Hardware Inventory JSON": "_HardwareInventory.json",
     "SetupAPI Device Log": "_SetupAPI.dev.log",
-    "SetupAPI App Log": "_SetupAPI.app.log",
     "PowerCfg Available Sleep States": "_PowerCfg_A.txt",
     "PowerCfg Requests": "_PowerCfg_Requests.txt",
     "PowerCfg LastWake": "_PowerCfg_LastWake.txt",
     "PowerCfg Wake Armed": "_PowerCfg_WakeArmed.txt",
     "SleepStudy Report": "_SleepStudy.html",
     "Energy Report": "_EnergyReport.html",
+    "Installed Apps Win32 CSV": "_InstalledApps_Win32.csv",
+    "Installed Apps Appx CSV": "_InstalledApps_Appx.csv",
+    "Provisioned Apps CSV": "_ProvisionedApps.csv",
+    "Default Apps XML": "_DefaultAppAssociations.xml",
+    "Default Apps TXT": "_DefaultAppAssociations.txt",
+    "Scheduled Tasks CSV": "_ScheduledTasks.csv",
+    "Scheduled Tasks TXT": "_ScheduledTasks.txt",
     "Display Audio Camera System CSV": "_Display_Audio_Camera_System.csv",
     "USB TypeC UCSI CSV": "_USB_TypeC_UCSI.csv",
     "Vendor Related Devices CSV": "_Vendor_Related_Devices.csv",
@@ -46,6 +53,12 @@ OUTPUT_FILES = {
     "EventLog Application": "_EventLog_Application.evtx",
     "EventLog Kernel PnP Configuration": "_EventLog_KernelPnP_Configuration.evtx",
     "EventLog DriverFrameworks UserMode": "_EventLog_DriverFrameworks_UserMode.evtx",
+    "Installed Updates CSV": "_InstalledUpdates.csv",
+    "Services CSV": "_Services.csv",
+    "Startup Apps CSV": "_StartupApps.csv",
+    "Power Plan TXT": "_PowerPlan.txt",
+    "IPConfig TXT": "_IPConfig.txt",
+    "PnP Interfaces TXT": "_PnpInterfaces.txt",
     "Collection Status": "_CollectionStatus.txt",
     "Run Log": "_RunLog.txt",
 }
@@ -350,12 +363,390 @@ $obj | ConvertTo-Json -Depth 4
         return False, str(exc)
 
 
+def collect_hardware_inventory(out_dir: Path) -> Tuple[bool, str]:
+    """Create _HardwareInventory.json for Precog.
+
+    T06 policy:
+    - Display / Panel: use WmiMonitorID and render as vendor + panel model.
+      If WmiMonitorID has no UserFriendlyName, fall back to EDID/PnP ID-like code
+      such as SHP1589, AUOBB9D, BOE0A3C.
+    - Network: use Get-NetAdapter, prefer InterfaceDescription as DisplayName,
+      and filter Bluetooth PAN / Virtual / VPN / Wi-Fi Direct / WAN Miniport noise.
+    """
+    path = out_dir / OUTPUT_FILES["Hardware Inventory JSON"]
+
+    ps_script = r"""
+function ConvertTo-SafeArray($value) {
+    if ($null -eq $value) { return @() }
+    return @($value)
+}
+
+function Decode-UInt16Ascii($arr) {
+    if ($null -eq $arr) { return '' }
+    $chars = @($arr) | Where-Object { $_ -ne 0 } | ForEach-Object { [char][int]$_ }
+    return (($chars -join '')).Trim()
+}
+
+function Normalize-PanelVendor($vendor) {
+    if ([string]::IsNullOrWhiteSpace($vendor)) { return 'Unknown' }
+
+    $v = $vendor.Trim().ToUpperInvariant()
+
+    $map = @{
+        'AUO' = 'AUO'
+        'BOE' = 'BOE'
+        'LGD' = 'LG'
+        'LPL' = 'LG'
+        'CMN' = 'CMN'
+        'CSO' = 'CSO'
+        'SDC' = 'SDC'
+        'SEC' = 'SEC'
+        'SHP' = 'Sharp'
+        'IVO' = 'IVO'
+        'INX' = 'INX'
+        'HKC' = 'HKC'
+        'MS_' = 'Microsoft'
+    }
+
+    if ($map.ContainsKey($v)) { return $map[$v] }
+    return $v
+}
+
+function Get-PanelCodeFromInstanceName($instanceName) {
+    if ([string]::IsNullOrWhiteSpace($instanceName)) { return '' }
+
+    # Example:
+    # DISPLAY\SHP1589\5&...
+    # DISPLAY\AUOBB9D\...
+    if ($instanceName -match 'DISPLAY\\([^\\]+)\\') {
+        return $matches[1]
+    }
+
+    return ''
+}
+
+function Select-PnpDeviceFields($devices) {
+    ConvertTo-SafeArray $devices |
+        Where-Object { $_ -ne $null } |
+        Sort-Object Class,FriendlyName,InstanceId |
+        Select-Object Class,FriendlyName,InstanceId,Status,Problem,ConfigManagerErrorCode
+}
+
+function Get-PnpGroup($namePattern, $classPattern, $idPattern, [switch]$OnlyPresent) {
+    $all = Get-PnpDevice -ErrorAction SilentlyContinue
+
+    $devices = $all | Where-Object {
+        (($namePattern -and $_.FriendlyName -and $_.FriendlyName -match $namePattern) -or
+         ($classPattern -and $_.Class -and $_.Class -match $classPattern) -or
+         ($idPattern -and $_.InstanceId -and $_.InstanceId -match $idPattern))
+    }
+
+    if ($OnlyPresent) {
+        $devices = $devices | Where-Object { $_.Status -eq 'OK' }
+    }
+
+    Select-PnpDeviceFields $devices
+}
+
+function Get-PanelInventory {
+    $monitors = @()
+
+    try {
+        $wmiMonitors = Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop |
+            Where-Object { $_.Active -eq $true -or $null -eq $_.Active }
+
+        foreach ($m in $wmiMonitors) {
+            $rawVendor = Decode-UInt16Ascii $m.ManufacturerName
+            $vendor = Normalize-PanelVendor $rawVendor
+            $model = Decode-UInt16Ascii $m.UserFriendlyName
+            $serial = Decode-UInt16Ascii $m.SerialNumberID
+            $productCode = Decode-UInt16Ascii $m.ProductCodeID
+            $panelCode = Get-PanelCodeFromInstanceName $m.InstanceName
+
+            $displayName = ''
+            if (-not [string]::IsNullOrWhiteSpace($model)) {
+                if ($model -match "^\Q$vendor\E\s+") {
+                    $displayName = $model
+                }
+                else {
+                    $displayName = (($vendor, $model) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ' '
+                }
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($panelCode)) {
+                # This gives useful output like Sharp SHP1589 / AUO AUOBB9D instead of "Monitor".
+                $displayName = (($vendor, $panelCode) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne 'Unknown' }) -join ' '
+                if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = $panelCode }
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($productCode)) {
+                $displayName = (($vendor, $productCode) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne 'Unknown' }) -join ' '
+                if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = $productCode }
+            }
+            else {
+                $displayName = $vendor
+            }
+
+            $monitors += [PSCustomObject]@{
+                DisplayName = $displayName
+                Manufacturer = $vendor
+                RawManufacturer = $rawVendor
+                Model = $model
+                ProductCode = $productCode
+                PanelCode = $panelCode
+                SerialNumber = $serial
+                InstanceName = $m.InstanceName
+                Active = $m.Active
+                Source = 'WmiMonitorID'
+            }
+        }
+    }
+    catch {
+        # WmiMonitorID may fail on some environments. Fall back to present DISPLAY PnP entries only.
+        $pnpMonitors = Get-PnpDevice -ErrorAction SilentlyContinue |
+            Where-Object { $_.Class -eq 'Monitor' -and $_.Status -eq 'OK' -and $_.InstanceId -like 'DISPLAY*' }
+
+        foreach ($p in $pnpMonitors) {
+            $panelCode = Get-PanelCodeFromInstanceName $p.InstanceId
+            $vendor3 = if ($panelCode.Length -ge 3) { $panelCode.Substring(0,3) } else { '' }
+            $vendor = Normalize-PanelVendor $vendor3
+            $displayName = (($vendor, $panelCode) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne 'Unknown' }) -join ' '
+            if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = if ($p.FriendlyName) { $p.FriendlyName } else { $p.InstanceId } }
+
+            $monitors += [PSCustomObject]@{
+                DisplayName = $displayName
+                Manufacturer = $vendor
+                RawManufacturer = $vendor3
+                Model = ''
+                ProductCode = ''
+                PanelCode = $panelCode
+                SerialNumber = ''
+                InstanceName = $p.InstanceId
+                Active = $true
+                Source = 'PnPDeviceFallback'
+            }
+        }
+    }
+
+    return ConvertTo-SafeArray $monitors
+}
+
+function Get-NetworkInventory {
+    $adapters = @()
+
+    try {
+        $netAdapters = Get-NetAdapter -ErrorAction Stop |
+            Where-Object {
+                $_.InterfaceDescription -and
+                $_.InterfaceDescription -notmatch 'WAN Miniport|Bluetooth|Personal Area Network|Wi-Fi Direct|Hyper-V|Virtual|VPN|TAP|TUN|Loopback|Microsoft Kernel Debug|QoS Packet Scheduler|Npcap|Packet Capture'
+            }
+
+        foreach ($a in $netAdapters) {
+            $desc = [string]$a.InterfaceDescription
+            $name = [string]$a.Name
+            $type = 'Other'
+
+            if ($desc -match 'Wireless|Wi-Fi|WLAN|802\.11|BE200|AX2|Realtek.*Wireless|MediaTek.*Wi|Qualcomm.*Wireless|RZ[0-9]|Killer.*Wi') {
+                $type = 'WLAN'
+            }
+            elseif ($desc -match 'Ethernet|GbE|2\.5G|5G|10G|I219|I225|I226|Realtek PCIe|Intel.*Ethernet|LAN|Gaming.*Controller') {
+                $type = 'LAN'
+            }
+            elseif ($desc -match 'Hyper-V|Virtual|VPN|TAP|TUN|Loopback|Wi-Fi Direct|Bluetooth') {
+                $type = 'Virtual'
+            }
+
+            if ($type -ne 'Virtual' -and $type -ne 'Other') {
+                $adapters += [PSCustomObject]@{
+                    DisplayName = $desc
+                    Name = $name
+                    InterfaceDescription = $desc
+                    Type = $type
+                    Status = [string]$a.Status
+                    MacAddress = $a.MacAddress
+                    LinkSpeed = $a.LinkSpeed
+                    InterfaceGuid = $a.InterfaceGuid
+                    ifIndex = $a.ifIndex
+                    Source = 'Get-NetAdapter'
+                }
+            }
+        }
+    }
+    catch {
+        $fallback = Get-PnpGroup 'Ethernet|LAN|GbE|I219|I225|I226|Realtek PCIe|Intel.*Ethernet|Wi-Fi|Wireless|WLAN|802\.11|Intel.*Wireless|Realtek.*Wireless|MediaTek.*Wi' 'Net' 'PCI\\VEN|USB' -OnlyPresent
+        foreach ($f in $fallback) {
+            $type = 'Other'
+            $name = if ($f.FriendlyName) { $f.FriendlyName } else { $f.InstanceId }
+
+            if ($name -match 'Wi-Fi|Wireless|WLAN|802\.11') { $type = 'WLAN' }
+            elseif ($name -match 'Ethernet|LAN|GbE|I219|I225|I226') { $type = 'LAN' }
+
+            if ($type -ne 'Other' -and $name -notmatch 'Bluetooth|Virtual|Wi-Fi Direct|WAN Miniport') {
+                $adapters += [PSCustomObject]@{
+                    DisplayName = $name
+                    Name = $name
+                    InterfaceDescription = $name
+                    Type = $type
+                    Status = $f.Status
+                    MacAddress = ''
+                    LinkSpeed = ''
+                    InterfaceGuid = ''
+                    ifIndex = ''
+                    Source = 'PnPDeviceFallback'
+                }
+            }
+        }
+    }
+
+    return ConvertTo-SafeArray $adapters
+}
+
+function Get-AudioInventory {
+    # Focus on real audio controller/function devices. Avoid AudioEndpoint Speaker/Microphone noise.
+    $devices = Get-PnpDevice -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Status -eq 'OK' -and
+            (
+                ($_.Class -match 'MEDIA|Sound') -or
+                ($_.InstanceId -match 'HDAUDIO|INTELAUDIO|ACP|VEN_10EC|VEN_1002|VEN_10DE') -or
+                ($_.FriendlyName -match 'Realtek.*Audio|Intel.*Smart Sound|AMD.*Audio|NVIDIA.*Audio|High Definition Audio')
+            ) -and
+            ($_.Class -notmatch 'AudioEndpoint') -and
+            ($_.FriendlyName -notmatch 'Speakers|Speaker|Microphone|Headphones|Headset|Line In|HDMI Output')
+        }
+
+    return Select-PnpDeviceFields $devices
+}
+
+function Get-BluetoothInventory {
+    $devices = Get-PnpDevice -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Status -eq 'OK' -and
+            (
+                ($_.Class -eq 'Bluetooth') -or
+                ($_.FriendlyName -match 'Intel.*Bluetooth|Realtek.*Bluetooth|MediaTek.*Bluetooth|Qualcomm.*Bluetooth|Bluetooth Adapter')
+            ) -and
+            ($_.FriendlyName -notmatch 'Enumerator|Protocol|Service|RFCOMM|LE Generic Attribute|Personal Area Network')
+        }
+
+    return Select-PnpDeviceFields $devices
+}
+
+function Get-UsbInventory {
+    # Keep USB controller / Type-C / UCSI relevant devices, not every USB child device.
+    $devices = Get-PnpDevice -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Status -eq 'OK' -and
+            (
+                ($_.FriendlyName -match 'USB.*Host Controller|USB.*Root Hub|xHCI|UCSI|UCM|Type-C|Billboard') -or
+                ($_.InstanceId -match 'USBC000|UCM|USB\\ROOT|USB\\VID_.*&PID_.*BILLBOARD')
+            )
+        }
+
+    return Select-PnpDeviceFields $devices
+}
+
+$computer = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+$bios = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
+$baseboard = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction SilentlyContinue
+$os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+
+$cpu = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue |
+    Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed,SocketDesignation,ProcessorId
+
+$memoryModules = Get-CimInstance -ClassName Win32_PhysicalMemory -ErrorAction SilentlyContinue |
+    Select-Object BankLabel,DeviceLocator,Manufacturer,PartNumber,SerialNumber,Capacity,Speed,ConfiguredClockSpeed,MemoryType,SMBIOSMemoryType
+
+$physicalDisks = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue |
+    Select-Object Model,Manufacturer,SerialNumber,InterfaceType,MediaType,Size,FirmwareRevision,PNPDeviceID
+
+$logicalDisks = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction SilentlyContinue |
+    Select-Object DeviceID,VolumeName,FileSystem,Size,FreeSpace,DriveType
+
+$graphics = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue |
+    Select-Object Name,AdapterCompatibility,PNPDeviceID,DriverVersion,VideoProcessor,AdapterRAM,CurrentHorizontalResolution,CurrentVerticalResolution
+
+$batteryCim = Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue |
+    Select-Object Name,DeviceID,Status,BatteryStatus,EstimatedChargeRemaining,DesignVoltage
+
+$tpmCim = Get-CimInstance -Namespace root\CIMV2\Security\MicrosoftTpm -ClassName Win32_Tpm -ErrorAction SilentlyContinue |
+    Select-Object SpecVersion,ManufacturerId,ManufacturerIdTxt,ManufacturerVersion,IsEnabled_InitialValue,IsActivated_InitialValue,IsOwned_InitialValue
+
+$secureBoot = 'Unknown'
+try {
+    $sb = Confirm-SecureBootUEFI
+    $secureBoot = if ($sb) { 'On' } else { 'Off' }
+} catch {
+    $secureBoot = 'Unsupported/Unknown'
+}
+
+$displayPanels = Get-PanelInventory
+$networkAdapters = Get-NetworkInventory
+
+$obj = [ordered]@{
+    SchemaVersion = 'Precog.HardwareInventory.T06'
+    Timestamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    System = [ordered]@{
+        ComputerName = $env:COMPUTERNAME
+        Manufacturer = $computer.Manufacturer
+        Model = $computer.Model
+        SystemSKU = $computer.SystemSKUNumber
+        SystemFamily = $computer.SystemFamily
+        BaseBoardProduct = $baseboard.Product
+        BaseBoardVersion = $baseboard.Version
+        BIOSVersion = (($bios.SMBIOSBIOSVersion, $bios.Version -ne $null) | ForEach-Object { $_ }) -join ' | '
+        BIOSReleaseDate = $bios.ReleaseDate
+        OSName = $os.Caption
+        OSVersion = $os.Version
+        OSBuild = $os.BuildNumber
+        SecureBoot = $secureBoot
+    }
+    CPU = ConvertTo-SafeArray $cpu
+    Memory = [ordered]@{
+        TotalPhysicalMemoryBytes = $computer.TotalPhysicalMemory
+        Modules = ConvertTo-SafeArray $memoryModules
+    }
+    Storage = [ordered]@{
+        PhysicalDisks = ConvertTo-SafeArray $physicalDisks
+        LogicalDisks = ConvertTo-SafeArray $logicalDisks
+    }
+    Graphics = ConvertTo-SafeArray $graphics
+    Display = [ordered]@{
+        Monitors = ConvertTo-SafeArray $displayPanels
+        Panel = ConvertTo-SafeArray $displayPanels
+    }
+    Network = [ordered]@{
+        Adapters = ConvertTo-SafeArray $networkAdapters
+        WLAN = ConvertTo-SafeArray ($networkAdapters | Where-Object { $_.Type -eq 'WLAN' })
+        LAN = ConvertTo-SafeArray ($networkAdapters | Where-Object { $_.Type -eq 'LAN' })
+        Bluetooth = ConvertTo-SafeArray (Get-BluetoothInventory)
+    }
+    Audio = ConvertTo-SafeArray (Get-AudioInventory)
+    Camera = ConvertTo-SafeArray (Get-PnpGroup 'Camera|Webcam|IR Camera|RGB Camera' 'Camera|Image' 'USB|ACPI' -OnlyPresent)
+    Battery = ConvertTo-SafeArray $batteryCim
+    TPM = ConvertTo-SafeArray $tpmCim
+    USB = ConvertTo-SafeArray (Get-UsbInventory)
+    Security = [ordered]@{
+        SecureBoot = $secureBoot
+        TPM = ConvertTo-SafeArray $tpmCim
+    }
+}
+
+$obj | ConvertTo-Json -Depth 10
+"""
+    ok, content = run_powershell(ps_script, timeout=240)
+
+    try:
+        if ok:
+            json.loads(content)
+            path.write_text(content, encoding="utf-8", errors="replace")
+            return True, "OK"
+        path.write_text(content or "", encoding="utf-8", errors="replace")
+        return False, content
+    except Exception as exc:
+        path.write_text(f"[EXCEPTION] {exc}\n{content}", encoding="utf-8", errors="replace")
+        return False, str(exc)
+
 def collect_setupapi_dev_log(out_dir: Path) -> Tuple[bool, str]:
     return copy_file(Path(r"C:\Windows\INF\setupapi.dev.log"), out_dir / OUTPUT_FILES["SetupAPI Device Log"])
-
-
-def collect_setupapi_app_log(out_dir: Path) -> Tuple[bool, str]:
-    return copy_file(Path(r"C:\Windows\INF\setupapi.app.log"), out_dir / OUTPUT_FILES["SetupAPI App Log"])
 
 
 def copy_file(src: Path, dst: Path) -> Tuple[bool, str]:
@@ -404,6 +795,147 @@ def collect_energy_report(out_dir: Path) -> Tuple[bool, str]:
         path,
         timeout=120,
     )
+
+
+def collect_installed_apps(out_dir: Path) -> Tuple[bool, str]:
+    """Collect both classic Win32 uninstall entries and Appx packages."""
+    errors: List[str] = []
+
+    win32_path = out_dir / OUTPUT_FILES["Installed Apps Win32 CSV"]
+    win32_script = r"""
+$paths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+
+$apps = foreach ($path in $paths) {
+    Get-ItemProperty $path -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName } |
+        Select-Object @{Name='Source';Expression={$path}},DisplayName,DisplayVersion,Publisher,InstallDate,InstallLocation,UninstallString,QuietUninstallString,SystemComponent,ReleaseType,WindowsInstaller,PSChildName
+}
+
+if (-not $apps) {
+    '"Source","DisplayName","DisplayVersion","Publisher","InstallDate","InstallLocation","UninstallString","QuietUninstallString","SystemComponent","ReleaseType","WindowsInstaller","PSChildName"'
+}
+else {
+    $apps | Sort-Object DisplayName,DisplayVersion,Publisher | ConvertTo-Csv -NoTypeInformation
+}
+"""
+    ok, content = run_powershell(win32_script, timeout=180)
+    win32_path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    if not ok:
+        errors.append(f"Win32 apps: {content}")
+
+    appx_path = out_dir / OUTPUT_FILES["Installed Apps Appx CSV"]
+    appx_script = r"""
+Get-AppxPackage -AllUsers |
+    Sort-Object Name,PackageFullName |
+    Select-Object Name,PackageFullName,PackageFamilyName,Publisher,Version,Architecture,ResourceId,InstallLocation,SignatureKind,Status,IsFramework,NonRemovable |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(appx_script, timeout=240)
+    appx_path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    if not ok:
+        errors.append(f"Appx apps: {content}")
+
+    provisioned_path = out_dir / OUTPUT_FILES["Provisioned Apps CSV"]
+    provisioned_script = r"""
+Get-AppxProvisionedPackage -Online |
+    Sort-Object DisplayName,PackageName |
+    Select-Object DisplayName,PackageName,Version,Architecture,ResourceId,InstallLocation,Regions |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(provisioned_script, timeout=240)
+    provisioned_path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    if not ok:
+        errors.append(f"Provisioned apps: {content}")
+
+    return (len(errors) == 0), "OK" if not errors else " | ".join(errors)
+
+
+def collect_default_apps(out_dir: Path) -> Tuple[bool, str]:
+    """Export default app associations. DISM writes XML directly; TXT is a readable fallback."""
+    xml_path = out_dir / OUTPUT_FILES["Default Apps XML"]
+    txt_path = out_dir / OUTPUT_FILES["Default Apps TXT"]
+
+    ok, detail = run_external_creates_file(
+        ["dism", "/online", f"/Export-DefaultAppAssociations:{xml_path}"],
+        xml_path,
+        timeout=180,
+    )
+
+    if xml_path.exists() and xml_path.stat().st_size > 0:
+        try:
+            txt_path.write_text(xml_path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8", errors="replace")
+        except Exception as exc:
+            txt_path.write_text(f"[EXCEPTION] {exc}", encoding="utf-8", errors="replace")
+        return True, "OK"
+
+    txt_path.write_text(detail or "[NO DEFAULT APP ASSOCIATIONS EXPORTED]", encoding="utf-8", errors="replace")
+    return ok, detail
+
+
+def collect_scheduled_tasks(out_dir: Path) -> Tuple[bool, str]:
+    errors: List[str] = []
+
+    csv_path = out_dir / OUTPUT_FILES["Scheduled Tasks CSV"]
+    ps_script = r"""
+Get-ScheduledTask |
+    ForEach-Object {
+        $task = $_
+        $info = $null
+        try { $info = $task | Get-ScheduledTaskInfo -ErrorAction Stop } catch {}
+
+        $actionsText = ''
+        try {
+            $actionsText = @($task.Actions) |
+                Where-Object { $_ -ne $null } |
+                ForEach-Object {
+                    $execute = if ($_.PSObject.Properties.Name -contains 'Execute') { $_.Execute } else { '' }
+                    $arguments = if ($_.PSObject.Properties.Name -contains 'Arguments') { $_.Arguments } else { '' }
+                    (($execute, $arguments) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join ' '
+                } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+            $actionsText = @($actionsText) -join ' | '
+        } catch { $actionsText = '' }
+
+        $triggersText = ''
+        try {
+            $triggersText = @($task.Triggers) |
+                Where-Object { $_ -ne $null } |
+                ForEach-Object { $_.ToString() }
+            $triggersText = @($triggersText) -join ' | '
+        } catch { $triggersText = '' }
+
+        [PSCustomObject]@{
+            TaskPath = $task.TaskPath
+            TaskName = $task.TaskName
+            State = $task.State
+            Author = $task.Author
+            Description = $task.Description
+            LastRunTime = if ($info) { $info.LastRunTime } else { $null }
+            LastTaskResult = if ($info) { $info.LastTaskResult } else { $null }
+            NextRunTime = if ($info) { $info.NextRunTime } else { $null }
+            NumberOfMissedRuns = if ($info) { $info.NumberOfMissedRuns } else { $null }
+            Actions = $actionsText
+            Triggers = $triggersText
+        }
+    } |
+    Sort-Object TaskPath,TaskName |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(ps_script, timeout=240)
+    csv_path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    if not ok:
+        errors.append(f"ScheduledTasks CSV: {content}")
+
+    txt_path = out_dir / OUTPUT_FILES["Scheduled Tasks TXT"]
+    ok, detail = run_command(["schtasks", "/query", "/fo", "LIST", "/v"], txt_path, timeout=240)
+    if not ok:
+        errors.append(f"schtasks: {detail}")
+
+    return (len(errors) == 0), "OK" if not errors else " | ".join(errors)
 
 
 def collect_special_devices(out_dir: Path) -> Tuple[bool, str]:
@@ -484,6 +1016,65 @@ def collect_event_logs(out_dir: Path) -> Tuple[bool, str]:
             errors.append(f"{log_name}: {detail}")
     return (len(errors) == 0), "OK" if not errors else " | ".join(errors)
 
+
+
+def collect_installed_updates(out_dir: Path) -> Tuple[bool, str]:
+    path = out_dir / OUTPUT_FILES["Installed Updates CSV"]
+    ps = r"""
+Get-HotFix |
+    Sort-Object InstalledOn |
+    Select HotFixID,Description,InstalledBy,InstalledOn |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(ps, timeout=120)
+    path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    return (ok and path.stat().st_size > 0), ("OK" if ok else content)
+
+
+def collect_services(out_dir: Path) -> Tuple[bool, str]:
+    path = out_dir / OUTPUT_FILES["Services CSV"]
+    ps = r"""
+Get-Service |
+    Sort-Object DisplayName |
+    Select Name,DisplayName,Status,StartType |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(ps, timeout=120)
+    path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    return (ok and path.stat().st_size > 0), ("OK" if ok else content)
+
+
+def collect_startup_apps(out_dir: Path) -> Tuple[bool, str]:
+    path = out_dir / OUTPUT_FILES["Startup Apps CSV"]
+    ps = r"""
+Get-CimInstance Win32_StartupCommand |
+    Select Name,Command,Location,User |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(ps, timeout=120)
+    path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+    return (ok and path.stat().st_size > 0), ("OK" if ok else content)
+
+
+def collect_power_plan(out_dir: Path) -> Tuple[bool, str]:
+    path = out_dir / OUTPUT_FILES["Power Plan TXT"]
+    ok1, d1 = run_command(["powercfg", "/list"], path)
+    try:
+        existing = path.read_text(encoding="utf-8", errors="replace")
+    except:
+        existing = ""
+    ok2, d2 = run_powershell("powercfg /query")
+    path.write_text(existing + "\n\n===== powercfg /query =====\n" + (d2 or ""), encoding="utf-8", errors="replace")
+    return (ok1 or ok2), "OK"
+
+
+def collect_ipconfig(out_dir: Path) -> Tuple[bool, str]:
+    return run_command(["ipconfig", "/all"], out_dir / OUTPUT_FILES["IPConfig TXT"], timeout=120)
+
+
+def collect_pnp_interfaces(out_dir: Path) -> Tuple[bool, str]:
+    path = out_dir / OUTPUT_FILES["PnP Interfaces TXT"]
+    return run_command(["pnputil", "/enum-interfaces"], path, timeout=180)
 
 def write_runlog(run_log_path: Path, lines: List[str]) -> None:
     run_log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -571,16 +1162,25 @@ def main() -> int:
         ("DXDiag", collect_dxdiag),
         ("Catalog Map", collect_catalog_map),
         ("System Summary JSON", collect_system_summary),
+        ("Hardware Inventory JSON", collect_hardware_inventory),
         ("SetupAPI Device Log", collect_setupapi_dev_log),
-        ("SetupAPI App Log", collect_setupapi_app_log),
         ("PowerCfg Available Sleep States", collect_powercfg_a),
         ("PowerCfg Requests", collect_powercfg_requests),
         ("PowerCfg LastWake", collect_powercfg_lastwake),
         ("PowerCfg Wake Armed", collect_powercfg_wake_armed),
         ("SleepStudy Report", collect_sleepstudy),
         ("Energy Report", collect_energy_report),
+        ("Installed Apps", collect_installed_apps),
+        ("Default Apps", collect_default_apps),
+        ("Scheduled Tasks", collect_scheduled_tasks),
         ("Special Device Groups", collect_special_devices),
         ("Event Logs", collect_event_logs),
+        ("Installed Updates", collect_installed_updates),
+        ("Services", collect_services),
+        ("Startup Apps", collect_startup_apps),
+        ("Power Plan", collect_power_plan),
+        ("IPConfig", collect_ipconfig),
+        ("PnP Interfaces", collect_pnp_interfaces),
     ]
 
     run_lines = [
