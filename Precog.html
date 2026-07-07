@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Precog</title>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./Precog.css" />
 </head>
@@ -19,17 +20,16 @@
          @dragleave.prevent="onDragLeave"
          @drop.prevent="handleDrop">
       <div :class="['w-full max-w-3xl rounded-3xl border-4 border-dashed bg-white shadow-sm p-10 text-center transition-all', dragOver ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300']">
-        <input id="fileInput" type="file" multiple class="hidden" @change="handleBatchUpload">
         <input id="folderInput" type="file" webkitdirectory directory multiple class="hidden" @change="handleBatchUpload">
-        <label for="fileInput" class="cursor-pointer block">
+        <input id="zipInput" type="file" accept=".zip,application/zip" class="hidden" @change="handleZipUpload">
           <div class="text-7xl mb-5">👁️</div>
           <h1 class="text-3xl font-black tracking-tight text-slate-900">Precog</h1>
           <p class="mt-3 text-slate-500">Driver / Device / Platform Insight & Triage Tool</p>
-          <p class="mt-2 text-xs text-slate-400">請把 Dowsing 解壓縮後的所有檔案全部拉進來，或直接選取 Dowsing output folder</p>
+          <p class="mt-2 text-xs text-slate-400">請拖拉 Dowsing folder / Dowsing .zip，或使用下方按鈕選取</p>
         </label>
         <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
           <button @click.stop="openFolderPicker" class="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-black hover:bg-slate-700">Select Dowsing Folder</button>
-          <label for="fileInput" class="px-5 py-3 rounded-2xl border border-slate-300 bg-white text-slate-700 text-sm font-black hover:bg-slate-50 cursor-pointer">Select Files</label>
+          <button @click.stop="openZipPicker" class="px-5 py-3 rounded-2xl bg-blue-600 text-white text-sm font-black hover:bg-blue-700">Select Dowsing ZIP</button>
         </div>
       </div>
     </div>
@@ -40,7 +40,7 @@
           <div>
             <div class="flex items-center gap-3">
               <h1 class="text-2xl font-black tracking-tight text-slate-900">Precog</h1>
-              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0-T02</span>
+              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0-T03</span>
             </div>
             <p class="text-sm text-slate-500 mt-1">Driver / Device / Platform Insight & Triage System</p>
           </div>

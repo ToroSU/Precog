@@ -522,12 +522,93 @@ createApp({
     function onDragEnter(e) { if (e && e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragCounter.value += 1; dragOver.value = true; } }
     function onDragOver(e) { if (e && e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dragOver.value = true; }
     function onDragLeave() { dragCounter.value -= 1; if (dragCounter.value <= 0) { dragCounter.value = 0; dragOver.value = false; } }
-    function handleBatchUpload(e) { const files = Array.from((e.target && e.target.files) || []); if (files.length) processFiles(files); }
+    function handleBatchUpload(e) { const files = Array.from((e.target && e.target.files) || []); if (files.length) processInputFiles(files); if (e && e.target) e.target.value = ""; }
     function openFolderPicker() {
       const input = document.getElementById('folderInput');
       if (input) input.click();
     }
-    function handleDrop(e) { dragCounter.value = 0; dragOver.value = false; const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if (files.length) processFiles(files); }
+    function openZipPicker() {
+      const input = document.getElementById('zipInput');
+      if (input) input.click();
+    }
+    function handleZipUpload(e) {
+      const files = Array.from((e.target && e.target.files) || []);
+      if (files.length) processInputFiles(files);
+      if (e && e.target) e.target.value = "";
+    }
+    function handleDrop(e) { dragCounter.value = 0; dragOver.value = false; const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if (files.length) processInputFiles(files); }
+
+    async function processInputFiles(files) {
+      const zipFiles = files.filter(f => /\.zip$/i.test(f.name || ''));
+      const normalFiles = files.filter(f => !/\.zip$/i.test(f.name || ''));
+      if (normalFiles.length) processFiles(normalFiles);
+      for (const zipFile of zipFiles) {
+        await processZipFile(zipFile);
+      }
+    }
+
+    async function processZipFile(zipFile) {
+      if (typeof JSZip === 'undefined') {
+        alert('JSZip is not loaded. Please check internet connection or include jszip.min.js locally.');
+        return;
+      }
+      selectedPanel.value = 'system';
+      try {
+        const zip = await JSZip.loadAsync(zipFile);
+        const entries = Object.values(zip.files).filter(entry => !entry.dir);
+        loadedFileNames.value = entries.map(entry => entry.name).sort((a, b) => a.localeCompare(b));
+        for (const entry of entries) {
+          const lower = entry.name.toLowerCase();
+          if (/\.(evtx|exe|dll|png|jpg|jpeg|gif|bin)$/i.test(lower)) continue;
+          const text = await entry.async('text');
+          parseLoadedFile(entry.name, text);
+        }
+      } catch (err) {
+        console.error('ZIP parse error', err);
+        alert('Failed to read ZIP file: ' + (err && err.message ? err.message : err));
+      }
+    }
+
+    function parseLoadedFile(fileName, text) {
+      const name = (fileName || '').split('/').pop().toLowerCase();
+      try {
+        if (name.includes('_dism_driverinfo')) parseDism(text);
+        else if (name.includes('_pnpdeviceinfo.csv')) pnpCsvDevices.value = parseCsv(text);
+        else if (name.includes('_pnpdeviceinfo')) parsePnp(text);
+        else if (name.includes('_pnpproblemdevices.csv')) pnpProblemCsvDevices.value = parseCsv(text);
+        else if (name.includes('_pnpproblemdevices')) parsePnpProblem(text);
+        else if (name.includes('_sysinfo')) parseSys(text);
+        else if (name.includes('_catalogmap')) parseCatalog(text);
+        else if (name.includes('_collectionstatus')) parseCollectionStatus(text);
+        else if (name.includes('_systemsummary.json')) parseSystemSummary(text);
+        else if (name.includes('_runlog')) runLogText.value = text;
+        else if (name.includes('_windowsversionreg')) rawWindowsVersionReg.value = text;
+        else if (name.includes('_osversion')) rawOSVersion.value = text;
+        else if (name.includes('_dxdiag')) rawDxDiagText.value = text;
+        else if (name.includes('_powercfg_a')) rawPowerCfgA.value = text;
+        else if (name.includes('_powercfg_requests')) rawPowerCfgRequests.value = text;
+        else if (name.includes('_powercfg_lastwake')) rawPowerCfgLastWake.value = text;
+        else if (name.includes('_powercfg_wakearmed')) rawPowerCfgWakeArmed.value = text;
+        else if (name.includes('_sleepstudy')) rawSleepStudyText.value = text;
+        else if (name.includes('_energyreport')) rawEnergyReportText.value = text;
+        else if (name.includes('_display_audio_camera_system')) displayAudioCameraRows.value = parseCsv(text);
+        else if (name.includes('_usb_typec_ucsi')) usbTypecRows.value = parseCsv(text);
+        else if (name.includes('_vendor_related_devices')) vendorRows.value = parseCsv(text);
+        else if (name.includes('_hardwareinventory.json')) parseHardwareInventory(text);
+        else if (name.includes('_installedapps_win32')) installedAppsWin32.value = parseCsv(text);
+        else if (name.includes('_installedapps_appx')) installedAppsAppx.value = parseCsv(text);
+        else if (name.includes('_provisionedapps')) provisionedApps.value = parseCsv(text);
+        else if (name.includes('_startupapps')) startupApps.value = parseCsv(text);
+        else if (name.includes('_installedupdates')) installedUpdates.value = parseCsv(text);
+        else if (name.includes('_services')) servicesRows.value = parseCsv(text);
+        else if (name.includes('_scheduledtasks.csv')) scheduledTasksRows.value = parseCsv(text);
+        else if (name.includes('_scheduledtasks.txt')) rawScheduledTasksText.value = text;
+        else if (name.includes('_powerplan')) rawPowerPlanText.value = text;
+        else if (name.includes('_ipconfig')) rawIPConfigText.value = text;
+        else if (name.includes('_pnpinterfaces')) rawPnpInterfacesText.value = text;
+        else if (name.includes('_defaultappassociations')) rawDefaultAppsText.value = text;
+      } catch (err) { console.error('Parse error in', fileName, err); }
+    }
 
     function processFiles(files) {
       loadedFileNames.value = files.map(f => f.webkitRelativePath || f.name).sort((a, b) => a.localeCompare(b));
@@ -535,45 +616,7 @@ createApp({
       files.forEach(file => {
         const reader = new FileReader();
         reader.onload = evt => {
-          const name = file.name.toLowerCase();
-          const text = evt.target.result;
-          try {
-            if (name.includes('_dism_driverinfo')) parseDism(text);
-            else if (name.includes('_pnpdeviceinfo.csv')) pnpCsvDevices.value = parseCsv(text);
-            else if (name.includes('_pnpdeviceinfo')) parsePnp(text);
-            else if (name.includes('_pnpproblemdevices.csv')) pnpProblemCsvDevices.value = parseCsv(text);
-            else if (name.includes('_pnpproblemdevices')) parsePnpProblem(text);
-            else if (name.includes('_sysinfo')) parseSys(text);
-            else if (name.includes('_catalogmap')) parseCatalog(text);
-            else if (name.includes('_collectionstatus')) parseCollectionStatus(text);
-            else if (name.includes('_systemsummary.json')) parseSystemSummary(text);
-            else if (name.includes('_runlog')) runLogText.value = text;
-            else if (name.includes('_windowsversionreg')) rawWindowsVersionReg.value = text;
-            else if (name.includes('_osversion')) rawOSVersion.value = text;
-            else if (name.includes('_dxdiag')) rawDxDiagText.value = text;
-            else if (name.includes('_powercfg_a')) rawPowerCfgA.value = text;
-            else if (name.includes('_powercfg_requests')) rawPowerCfgRequests.value = text;
-            else if (name.includes('_powercfg_lastwake')) rawPowerCfgLastWake.value = text;
-            else if (name.includes('_powercfg_wakearmed')) rawPowerCfgWakeArmed.value = text;
-            else if (name.includes('_sleepstudy')) rawSleepStudyText.value = text;
-            else if (name.includes('_energyreport')) rawEnergyReportText.value = text;
-            else if (name.includes('_display_audio_camera_system')) displayAudioCameraRows.value = parseCsv(text);
-            else if (name.includes('_usb_typec_ucsi')) usbTypecRows.value = parseCsv(text);
-            else if (name.includes('_vendor_related_devices')) vendorRows.value = parseCsv(text);
-            else if (name.includes('_hardwareinventory.json')) parseHardwareInventory(text);
-            else if (name.includes('_installedapps_win32')) installedAppsWin32.value = parseCsv(text);
-            else if (name.includes('_installedapps_appx')) installedAppsAppx.value = parseCsv(text);
-            else if (name.includes('_provisionedapps')) provisionedApps.value = parseCsv(text);
-            else if (name.includes('_startupapps')) startupApps.value = parseCsv(text);
-            else if (name.includes('_installedupdates')) installedUpdates.value = parseCsv(text);
-            else if (name.includes('_services')) servicesRows.value = parseCsv(text);
-            else if (name.includes('_scheduledtasks.csv')) scheduledTasksRows.value = parseCsv(text);
-            else if (name.includes('_scheduledtasks.txt')) rawScheduledTasksText.value = text;
-            else if (name.includes('_powerplan')) rawPowerPlanText.value = text;
-            else if (name.includes('_ipconfig')) rawIPConfigText.value = text;
-            else if (name.includes('_pnpinterfaces')) rawPnpInterfacesText.value = text;
-            else if (name.includes('_defaultappassociations')) rawDefaultAppsText.value = text;
-          } catch (err) { console.error('Parse error in', file.name, err); }
+          parseLoadedFile(file.name, evt.target.result);
         };
         reader.readAsText(file);
       });
@@ -795,6 +838,6 @@ createApp({
     function firstMeaningfulLine(text) { return (text || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || 'Loaded'; }
     function getDxDiagHeadline(text) { const model = (text.match(/System Model:\s*(.+)/i) || [])[1]; const os = (text.match(/Operating System:\s*(.+)/i) || [])[1]; return [model, os].filter(Boolean).join(' | ') || 'Display / audio diagnostics available'; }
 
-    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, operationsLogCards };
+    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, operationsLogCards };
   }
 }).mount('#app');
