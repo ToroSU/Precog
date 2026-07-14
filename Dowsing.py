@@ -59,6 +59,7 @@ OUTPUT_FILES = {
     "Power Plan TXT": "_PowerPlan.txt",
     "IPConfig TXT": "_IPConfig.txt",
     "PnP Interfaces TXT": "_PnpInterfaces.txt",
+    "PnP Device Status JSON": "_PnpDeviceStatus.json",
     "Collection Status": "_CollectionStatus.txt",
     "Run Log": "_RunLog.txt",
 }
@@ -1076,6 +1077,287 @@ def collect_pnp_interfaces(out_dir: Path) -> Tuple[bool, str]:
     path = out_dir / OUTPUT_FILES["PnP Interfaces TXT"]
     return run_command(["pnputil", "/enum-interfaces"], path, timeout=180)
 
+
+def collect_pnp_device_status(out_dir: Path) -> Tuple[bool, str]:
+    """Collect detailed Configuration Manager status for every PnP device.
+
+    The JSON is pre-decoded for Precog:
+    - ProblemCode / ProblemName
+    - ProblemStatus as hexadecimal NTSTATUS
+    - DevNodeStatus raw value and decoded DN_* flags
+    - ConfigFlags raw value and decoded CONFIGFLAG_* flags
+    - DriverLoaded / DeviceStarted convenience booleans
+    """
+    path = out_dir / OUTPUT_FILES["PnP Device Status JSON"]
+
+    ps_script = r"""
+$problemNames = @{
+    0  = 'CM_PROB_NONE'
+    1  = 'CM_PROB_NOT_CONFIGURED'
+    2  = 'CM_PROB_DEVLOADER_FAILED'
+    3  = 'CM_PROB_OUT_OF_MEMORY'
+    4  = 'CM_PROB_ENTRY_IS_WRONG_TYPE'
+    5  = 'CM_PROB_LACKED_ARBITRATOR'
+    6  = 'CM_PROB_BOOT_CONFIG_CONFLICT'
+    7  = 'CM_PROB_FAILED_FILTER'
+    8  = 'CM_PROB_DEVLOADER_NOT_FOUND'
+    9  = 'CM_PROB_INVALID_DATA'
+    10 = 'CM_PROB_FAILED_START'
+    11 = 'CM_PROB_LIAR'
+    12 = 'CM_PROB_NORMAL_CONFLICT'
+    13 = 'CM_PROB_NOT_VERIFIED'
+    14 = 'CM_PROB_NEED_RESTART'
+    15 = 'CM_PROB_REENUMERATION'
+    16 = 'CM_PROB_PARTIAL_LOG_CONF'
+    17 = 'CM_PROB_UNKNOWN_RESOURCE'
+    18 = 'CM_PROB_REINSTALL'
+    19 = 'CM_PROB_REGISTRY'
+    20 = 'CM_PROB_VXDLDR'
+    21 = 'CM_PROB_WILL_BE_REMOVED'
+    22 = 'CM_PROB_DISABLED'
+    23 = 'CM_PROB_DEVLOADER_NOT_READY'
+    24 = 'CM_PROB_DEVICE_NOT_THERE'
+    25 = 'CM_PROB_MOVED'
+    26 = 'CM_PROB_TOO_EARLY'
+    27 = 'CM_PROB_NO_VALID_LOG_CONF'
+    28 = 'CM_PROB_FAILED_INSTALL'
+    29 = 'CM_PROB_HARDWARE_DISABLED'
+    30 = 'CM_PROB_CANT_SHARE_IRQ'
+    31 = 'CM_PROB_FAILED_ADD'
+    32 = 'CM_PROB_DISABLED_SERVICE'
+    33 = 'CM_PROB_TRANSLATION_FAILED'
+    34 = 'CM_PROB_NO_SOFTCONFIG'
+    35 = 'CM_PROB_BIOS_TABLE'
+    36 = 'CM_PROB_IRQ_TRANSLATION_FAILED'
+    37 = 'CM_PROB_FAILED_DRIVER_ENTRY'
+    38 = 'CM_PROB_DRIVER_FAILED_PRIOR_UNLOAD'
+    39 = 'CM_PROB_DRIVER_FAILED_LOAD'
+    40 = 'CM_PROB_DRIVER_SERVICE_KEY_INVALID'
+    41 = 'CM_PROB_LEGACY_SERVICE_NO_DEVICES'
+    42 = 'CM_PROB_DUPLICATE_DEVICE'
+    43 = 'CM_PROB_FAILED_POST_START'
+    44 = 'CM_PROB_HALTED'
+    45 = 'CM_PROB_PHANTOM'
+    46 = 'CM_PROB_SYSTEM_SHUTDOWN'
+    47 = 'CM_PROB_HELD_FOR_EJECT'
+    48 = 'CM_PROB_DRIVER_BLOCKED'
+    49 = 'CM_PROB_REGISTRY_TOO_LARGE'
+    50 = 'CM_PROB_SETPROPERTIES_FAILED'
+    51 = 'CM_PROB_WAITING_ON_DEPENDENCY'
+    52 = 'CM_PROB_UNSIGNED_DRIVER'
+    53 = 'CM_PROB_USED_BY_DEBUGGER'
+    54 = 'CM_PROB_DEVICE_RESET'
+    55 = 'CM_PROB_CONSOLE_LOCKED'
+    56 = 'CM_PROB_NEED_CLASS_CONFIG'
+    57 = 'CM_PROB_GUEST_ASSIGNMENT_FAILED'
+    58 = 'CM_PROB_FAILED_DRIVER_INTEGRITY_CHECK'
+    59 = 'CM_PROB_INSUFFICIENT_POWER'
+    60 = 'CM_PROB_FIRMWARE_RESOURCE_CONFLICT'
+}
+
+$dnFlags = [ordered]@{
+    0x00000001 = 'DN_ROOT_ENUMERATED'
+    0x00000002 = 'DN_DRIVER_LOADED'
+    0x00000004 = 'DN_ENUM_LOADED'
+    0x00000008 = 'DN_STARTED'
+    0x00000010 = 'DN_MANUAL'
+    0x00000020 = 'DN_NEED_TO_ENUM'
+    0x00000040 = 'DN_NOT_FIRST_TIME'
+    0x00000080 = 'DN_HARDWARE_ENUM'
+    0x00000100 = 'DN_LIAR'
+    0x00000200 = 'DN_HAS_MARK'
+    0x00000400 = 'DN_HAS_PROBLEM'
+    0x00000800 = 'DN_FILTERED'
+    0x00001000 = 'DN_MOVED'
+    0x00002000 = 'DN_DISABLEABLE'
+    0x00004000 = 'DN_REMOVABLE'
+    0x00008000 = 'DN_PRIVATE_PROBLEM'
+    0x00010000 = 'DN_MF_PARENT'
+    0x00020000 = 'DN_MF_CHILD'
+    0x00040000 = 'DN_WILL_BE_REMOVED'
+    0x00080000 = 'DN_NOT_FIRST_TIMEE'
+    0x00100000 = 'DN_STOP_FREE_RES'
+    0x00200000 = 'DN_REBAL_CANDIDATE'
+    0x00400000 = 'DN_BAD_PARTIAL'
+    0x00800000 = 'DN_NT_ENUMERATOR'
+    0x01000000 = 'DN_NT_DRIVER'
+    0x02000000 = 'DN_NEEDS_LOCKING'
+    0x04000000 = 'DN_ARM_WAKEUP'
+    0x08000000 = 'DN_APM_ENUMERATOR'
+    0x10000000 = 'DN_APM_DRIVER'
+    0x20000000 = 'DN_SILENT_INSTALL'
+    0x40000000 = 'DN_NO_SHOW_IN_DM'
+    0x80000000 = 'DN_BOOT_LOG_PROB'
+}
+
+$configFlags = [ordered]@{
+    0x00000001 = 'CONFIGFLAG_DISABLED'
+    0x00000002 = 'CONFIGFLAG_REMOVED'
+    0x00000004 = 'CONFIGFLAG_MANUAL_INSTALL'
+    0x00000008 = 'CONFIGFLAG_IGNORE_BOOT_LC'
+    0x00000010 = 'CONFIGFLAG_NET_BOOT'
+    0x00000020 = 'CONFIGFLAG_REINSTALL'
+    0x00000040 = 'CONFIGFLAG_FAILEDINSTALL'
+    0x00000080 = 'CONFIGFLAG_CANTSTOPACHILD'
+    0x00000100 = 'CONFIGFLAG_OKREMOVEROM'
+    0x00000200 = 'CONFIGFLAG_NOREMOVEEXIT'
+    0x00000400 = 'CONFIGFLAG_FINISH_INSTALL'
+    0x00000800 = 'CONFIGFLAG_NEEDS_FORCED_CONFIG'
+    0x00001000 = 'CONFIGFLAG_NETBOOT_CARD'
+    0x00002000 = 'CONFIGFLAG_PARTIAL_LOG_CONF'
+    0x00004000 = 'CONFIGFLAG_SUPPRESS_SURPRISE'
+    0x00008000 = 'CONFIGFLAG_VERIFY_HARDWARE'
+    0x00010000 = 'CONFIGFLAG_FINISHINSTALL_UI'
+    0x00020000 = 'CONFIGFLAG_FINISHINSTALL_ACTION'
+    0x00040000 = 'CONFIGFLAG_BOOT_DEVICE'
+}
+
+function Get-PropertyValue {
+    param(
+        [object[]]$Properties,
+        [string]$KeyName,
+        $DefaultValue = $null
+    )
+
+    $match = $Properties | Where-Object { $_.KeyName -eq $KeyName } | Select-Object -First 1
+    if ($null -eq $match -or $null -eq $match.Data) {
+        return $DefaultValue
+    }
+    return $match.Data
+}
+
+function Convert-Flags {
+    param(
+        [UInt64]$Value,
+        [System.Collections.IDictionary]$Map
+    )
+
+    $names = @()
+    foreach ($entry in $Map.GetEnumerator()) {
+        $mask = [UInt64]$entry.Key
+        if (($Value -band $mask) -eq $mask) {
+            $names += [string]$entry.Value
+        }
+    }
+    return @($names)
+}
+
+$result = foreach ($device in (Get-PnpDevice -ErrorAction SilentlyContinue)) {
+    $properties = @()
+    try {
+        $properties = @(Get-PnpDeviceProperty `
+            -InstanceId $device.InstanceId `
+            -KeyName @(
+                'DEVPKEY_Device_ProblemCode',
+                'DEVPKEY_Device_ProblemStatus',
+                'DEVPKEY_Device_DevNodeStatus',
+                'DEVPKEY_Device_ConfigFlags'
+            ) `
+            -ErrorAction SilentlyContinue)
+    }
+    catch {
+        $properties = @()
+    }
+
+    $fallbackCode = 0
+    if ($null -ne $device.ConfigManagerErrorCode) {
+        $fallbackCode = [int]$device.ConfigManagerErrorCode
+    }
+    elseif ($null -ne $device.Problem) {
+        try { $fallbackCode = [int]$device.Problem } catch { $fallbackCode = 0 }
+    }
+
+    $problemCodeRaw = Get-PropertyValue $properties 'DEVPKEY_Device_ProblemCode' $fallbackCode
+    try { $problemCode = [int]$problemCodeRaw } catch { $problemCode = $fallbackCode }
+
+    $problemStatusRaw = Get-PropertyValue $properties 'DEVPKEY_Device_ProblemStatus' 0
+    try { $problemStatusUInt = [UInt32]$problemStatusRaw } catch { $problemStatusUInt = [UInt32]0 }
+
+    $devNodeRaw = Get-PropertyValue $properties 'DEVPKEY_Device_DevNodeStatus' 0
+    try { $devNodeStatus = [UInt32]$devNodeRaw } catch { $devNodeStatus = [UInt32]0 }
+
+    $configRaw = Get-PropertyValue $properties 'DEVPKEY_Device_ConfigFlags' 0
+    try { $configStatus = [UInt32]$configRaw } catch { $configStatus = [UInt32]0 }
+
+    $problemName = if ($problemNames.ContainsKey($problemCode)) {
+        $problemNames[$problemCode]
+    }
+    else {
+        "CM_PROB_UNKNOWN_$problemCode"
+    }
+
+    [PSCustomObject]@{
+        Class = $device.Class
+        FriendlyName = $device.FriendlyName
+        InstanceId = $device.InstanceId
+        Status = [string]$device.Status
+        Present = ($device.Status -ne 'Unknown')
+        ProblemCode = $problemCode
+        ProblemName = $problemName
+        ProblemStatus = ('0x{0:X8}' -f $problemStatusUInt)
+        ProblemStatusRaw = [UInt32]$problemStatusUInt
+        DevNodeStatusRaw = [UInt32]$devNodeStatus
+        DevNodeStatusHex = ('0x{0:X8}' -f $devNodeStatus)
+        DevNodeFlags = @(Convert-Flags $devNodeStatus $dnFlags)
+        ConfigFlagsRaw = [UInt32]$configStatus
+        ConfigFlagsHex = ('0x{0:X8}' -f $configStatus)
+        ConfigFlags = @(Convert-Flags $configStatus $configFlags)
+        DriverLoaded = (($devNodeStatus -band 0x00000002) -ne 0)
+        DeviceStarted = (($devNodeStatus -band 0x00000008) -ne 0)
+    }
+}
+
+[ordered]@{
+    SchemaVersion = 'Precog.PnpDeviceStatus.v1'
+    GeneratedTime = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    DeviceCount = @($result).Count
+    ProblemDeviceCount = @($result | Where-Object { $_.ProblemCode -ne 0 }).Count
+    Devices = @($result | Sort-Object Class,FriendlyName,InstanceId)
+} | ConvertTo-Json -Depth 8
+"""
+    ok, content = run_powershell(ps_script, timeout=600)
+
+    try:
+        if ok:
+            json.loads(content)
+            path.write_text(content, encoding="utf-8", errors="replace")
+            return True, "OK"
+        path.write_text(content or "", encoding="utf-8", errors="replace")
+        return False, content
+    except Exception as exc:
+        path.write_text(f"[EXCEPTION] {exc}\n{content}", encoding="utf-8", errors="replace")
+        return False, str(exc)
+
+
+def print_progress(current: int, total: int, item: str) -> None:
+    """Render one replaceable progress line in the console."""
+    message = f"[{current}/{total}] {item}"
+    try:
+        width = shutil.get_terminal_size(fallback=(100, 24)).columns
+    except Exception:
+        width = 100
+
+    # Keep the line inside the current console width and clear remnants
+    # left by a longer previous item.
+    visible_width = max(20, width - 1)
+    if len(message) > visible_width:
+        message = message[: max(0, visible_width - 3)] + "..."
+
+    sys.stdout.write("\r" + message.ljust(visible_width))
+    sys.stdout.flush()
+
+
+def finish_progress(message: str) -> None:
+    """Finish the replaceable progress line and move to the next console line."""
+    try:
+        width = shutil.get_terminal_size(fallback=(100, 24)).columns
+    except Exception:
+        width = 100
+    visible_width = max(20, width - 1)
+    sys.stdout.write("\r" + message[:visible_width].ljust(visible_width) + "\n")
+    sys.stdout.flush()
+
+
 def write_runlog(run_log_path: Path, lines: List[str]) -> None:
     run_log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -1181,6 +1463,7 @@ def main() -> int:
         ("Power Plan", collect_power_plan),
         ("IPConfig", collect_ipconfig),
         ("PnP Interfaces", collect_pnp_interfaces),
+        ("PnP Device Status", collect_pnp_device_status),
     ]
 
     run_lines = [
@@ -1193,8 +1476,11 @@ def main() -> int:
     ]
 
     statuses: Dict[str, str] = {}
+    total_collectors = len(collectors)
 
-    for display_name, collector in collectors:
+    for current_index, (display_name, collector) in enumerate(collectors, start=1):
+        print_progress(current_index, total_collectors, display_name)
+
         run_lines.append(f"[RUN] {display_name}")
         write_runlog(run_log_path, run_lines)
 
@@ -1208,6 +1494,12 @@ def main() -> int:
             run_lines.append(f"[FAIL] {display_name} ({detail})")
 
         write_runlog(run_log_path, run_lines)
+
+    failed_count = sum(1 for value in statuses.values() if value != "OK")
+    finish_progress(
+        f"[{total_collectors}/{total_collectors}] Log collection complete"
+        + (f" ({failed_count} failed)" if failed_count else "")
+    )
 
     statuses["Collection Status"] = "OK"
     statuses["Zip"] = "PENDING"
