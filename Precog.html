@@ -40,7 +40,7 @@
           <div>
             <div class="flex items-center gap-3">
               <h1 class="text-2xl font-black tracking-tight text-slate-900">Precog</h1>
-              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0-T03</span>
+              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0-T04</span>
             </div>
             <p class="text-sm text-slate-500 mt-1">Driver / Device / Platform Insight & Triage System</p>
           </div>
@@ -111,6 +111,20 @@
                 <div class="rounded-xl border p-3"><div class="label">Signer</div><div class="value break-all">{{ selectedDevice.signer || 'N/A' }}</div></div>
                 <div class="rounded-xl border p-3"><div class="label">Version</div><div class="value">{{ selectedDevice.version || 'N/A' }}</div></div>
                 <div class="rounded-xl border p-3"><div class="label">Driver Status</div><div class="value break-all">{{ selectedDevice.activeDriverStatus || 'N/A' }}</div></div>
+              </div>
+              <div v-if="selectedDevice.deviceStatus" class="rounded-2xl border border-slate-200 overflow-hidden">
+                <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between gap-3">
+                  <div><h3 class="font-black">Device Status</h3><p class="text-[11px] text-slate-300 mt-1">Windows Configuration Manager / DevNode diagnostics</p></div>
+                  <span :class="['px-3 py-1 rounded-full text-xs font-black', selectedDevice.deviceStatus.ProblemCode && Number(selectedDevice.deviceStatus.ProblemCode)!==0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700']">Code {{ selectedDevice.deviceStatus.ProblemCode ?? 0 }}</span>
+                </div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Problem Name</div><div class="mt-1 font-bold break-all">{{ selectedDevice.deviceStatus.ProblemName || 'CM_PROB_NONE' }}</div></div>
+                  <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Problem Status</div><div class="mt-1 font-bold font-mono break-all">{{ selectedDevice.deviceStatus.ProblemStatus || selectedDevice.deviceStatus.ProblemStatusHex || '0x00000000' }}</div></div>
+                  <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Driver Loaded</div><div :class="['mt-1 font-bold', selectedDevice.deviceStatus.DriverLoaded ? 'text-emerald-700' : 'text-slate-600']">{{ selectedDevice.deviceStatus.DriverLoaded ? 'Yes' : 'No' }}</div></div>
+                  <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Device Started</div><div :class="['mt-1 font-bold', selectedDevice.deviceStatus.DeviceStarted ? 'text-emerald-700' : 'text-red-700']">{{ selectedDevice.deviceStatus.DeviceStarted ? 'Yes' : 'No' }}</div></div>
+                  <div class="rounded-xl bg-slate-50 border p-3 md:col-span-2"><div class="card-label">DevNode Flags</div><div class="mt-2 flex flex-wrap gap-2"><span v-for="flag in (selectedDevice.deviceStatus.DevNodeFlags || [])" :key="flag" :class="['px-2 py-1 rounded-lg text-[11px] font-bold', flag==='DN_HAS_PROBLEM' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-700']">{{ flag }}</span><span v-if="!(selectedDevice.deviceStatus.DevNodeFlags || []).length" class="text-slate-400">None</span></div><div class="text-[11px] text-slate-400 mt-2 font-mono">{{ selectedDevice.deviceStatus.DevNodeStatusHex || selectedDevice.deviceStatus.DevNodeStatusRaw || '' }}</div></div>
+                  <div class="rounded-xl bg-slate-50 border p-3 md:col-span-2"><div class="card-label">Configuration Flags</div><div class="mt-2 flex flex-wrap gap-2"><span v-for="flag in (selectedDevice.deviceStatus.ConfigFlags || [])" :key="flag" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-amber-100 text-amber-700">{{ flag }}</span><span v-if="!(selectedDevice.deviceStatus.ConfigFlags || []).length" class="text-slate-400">None</span></div><div class="text-[11px] text-slate-400 mt-2 font-mono">{{ selectedDevice.deviceStatus.ConfigFlagsHex || selectedDevice.deviceStatus.ConfigFlagsRaw || '' }}</div></div>
+                </div>
               </div>
               <div class="rounded-2xl border p-4">
                 <h3 class="font-black mb-2">Hardware IDs</h3>
@@ -407,24 +421,21 @@
 
       <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden grid grid-cols-1 xl:grid-cols-[260px_1fr]">
         <aside class="border-r bg-slate-50/70 min-h-0 overflow-y-auto custom-scrollbar p-4 hidden xl:block">
+          <div class="system-side-title mb-2">System Info</div>
           <div class="space-y-1">
-            <div class="system-side-active">Overview</div>
+            <button @click="scrollSystemSection('overview')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='overview' ? 'system-side-active' : '']">Overview</button>
+            <button @click="scrollSystemSection('snapshot')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='snapshot' ? 'system-side-active' : '']">System Snapshot</button>
+            <button @click="scrollSystemSection('hardware')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='hardware' ? 'system-side-active' : '']">Hardware Summary</button>
+            <button @click="scrollSystemSection('devices')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='devices' ? 'system-side-active' : '']">Problem Devices</button>
+            <button @click="scrollSystemSection('raw')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='raw' ? 'system-side-active' : '']">Raw System Data</button>
           </div>
           <div class="mt-6">
-            <div class="system-side-title">System</div>
-            <div class="system-side-item">System Summary</div>
-            <div class="system-side-item">Hardware</div>
-            <div class="system-side-item">Operating System</div>
-            <div class="system-side-item">Installed Apps</div>
-            <div class="system-side-item">Optional Features</div>
-          </div>
-          <div class="mt-6">
-            <div class="system-side-title">Software & Data</div>
-            <div class="system-side-item">Installed Updates</div>
-            <div class="system-side-item">Drivers Overview</div>
-            <div class="system-side-item">Services</div>
-            <div class="system-side-item">Startup Programs</div>
-            <div class="system-side-item">Scheduled Tasks</div>
+            <div class="system-side-title">Related Pages</div>
+            <button @click="selectedPanel='configuration'" class="w-full text-left system-side-item rounded-xl">System Configuration ↗</button>
+            <button @click="selectedPanel='apps'" class="w-full text-left system-side-item rounded-xl">Apps ↗</button>
+            <button @click="selectedPanel='systemLogs'" class="w-full text-left system-side-item rounded-xl">System Logs ↗</button>
+            <button @click="selectedOem=null; selectedPanel='overview'" class="w-full text-left system-side-item rounded-xl">Driver Status ↗</button>
+            <button @click="selectedPanel='deviceManager'" class="w-full text-left system-side-item rounded-xl">Device Manager ↗</button>
           </div>
           <div class="mt-6 rounded-2xl border bg-white p-3">
             <div class="text-xs font-black text-slate-600 mb-2">Collection Information</div>
@@ -434,7 +445,7 @@
         </aside>
 
         <main class="min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-          <section class="rounded-2xl border p-4 bg-white">
+          <section id="system-section-overview" class="rounded-2xl border p-4 bg-white scroll-mt-4">
             <div class="flex items-center justify-between mb-3 gap-3">
               <div>
                 <h2 class="text-lg font-black text-slate-900">System Overview</h2>
@@ -481,7 +492,7 @@
             </div>
           </section>
 
-          <section class="rounded-2xl border p-4 bg-white">
+          <section id="system-section-snapshot" class="rounded-2xl border p-4 bg-white scroll-mt-4">
             <h2 class="text-lg font-black mb-3">System Snapshot</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
               <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Computer Name</div><div class="mt-1 font-bold break-all">{{ systemSummary.ComputerName || systemSummary.CSName || 'N/A' }}</div></div>
@@ -499,7 +510,7 @@
             </div>
           </section>
 
-          <section class="grid grid-cols-1 2xl:grid-cols-3 gap-4">
+          <section id="system-section-hardware" class="grid grid-cols-1 2xl:grid-cols-3 gap-4 scroll-mt-4">
             <div class="rounded-2xl border p-4 bg-white">
               <h2 class="text-lg font-black mb-3">Hardware Summary</h2>
               <div class="space-y-2 text-sm">
@@ -520,7 +531,7 @@
               </div>
               <button @click="selectedOem = null; selectedPanel='overview'" class="mt-4 text-xs font-bold text-blue-600 hover:underline">View Driver Details →</button>
             </div>
-            <div class="rounded-2xl border p-4 bg-white">
+            <div id="system-section-devices" class="rounded-2xl border p-4 bg-white scroll-mt-4">
               <div class="flex items-center justify-between gap-3 mb-3">
                 <h2 class="text-lg font-black">Problem Device Summary</h2>
                 <div class="flex gap-2">
@@ -550,7 +561,7 @@
             </div>
           </section>
 
-          <section class="rounded-2xl border p-4 bg-white">
+          <section id="system-section-raw" class="rounded-2xl border p-4 bg-white scroll-mt-4">
             <h2 class="text-lg font-black mb-3">Raw System Data</h2>
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <div>

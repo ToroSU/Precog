@@ -61,6 +61,8 @@ createApp({
     const rawIPConfigText = ref('');
     const rawPnpInterfacesText = ref('');
     const rawScheduledTasksText = ref('');
+    const pnpDeviceStatus = ref([]);
+    const activeSystemSection = ref('overview');
 
 
     const statusOptions = ['All', 'Installed', 'No Device', 'Problem'];
@@ -103,6 +105,28 @@ createApp({
       if (v.includes('off')) return 'text-amber-600';
       return 'text-slate-700';
     });
+
+    const pnpDeviceStatusMap = computed(() => {
+      const map = new Map();
+      pnpDeviceStatus.value.forEach(item => {
+        const id = item.InstanceId || item.instanceId || item.DeviceInstanceId || '';
+        if (id) map.set(id.toLowerCase(), item);
+      });
+      return map;
+    });
+
+    function getDeviceStatus(instanceId) {
+      if (!instanceId) return null;
+      return pnpDeviceStatusMap.value.get(String(instanceId).toLowerCase()) || null;
+    }
+
+    function scrollSystemSection(sectionId) {
+      activeSystemSection.value = sectionId;
+      requestAnimationFrame(() => {
+        const el = document.getElementById('system-section-' + sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
 
     const problemDevicesCombined = computed(() => {
       const map = new Map();
@@ -207,7 +231,8 @@ createApp({
           activeDriver: '',
           activeDriverStatus: '',
           signer: '',
-          version: ''
+          version: '',
+          deviceStatus: getDeviceStatus(id)
         });
       });
 
@@ -229,7 +254,8 @@ createApp({
           activeDriver: old.activeDriver || '',
           activeDriverStatus: old.activeDriverStatus || '',
           signer: old.signer || '',
-          version: old.version || ''
+          version: old.version || '',
+          deviceStatus: getDeviceStatus(old.instanceId || id)
         });
       });
       pnpDevices.value.forEach(dev => {
@@ -251,7 +277,8 @@ createApp({
           activeDriver: active ? active.name : (base.activeDriver || ''),
           activeDriverStatus: active ? active.status : (base.activeDriverStatus || ''),
           signer: active ? active.signer : (base.signer || ''),
-          version: active ? active.ver : (base.version || '')
+          version: active ? active.ver : (base.version || ''),
+          deviceStatus: getDeviceStatus(id)
         });
       });
       return [...map.values()].sort((a, b) => (a.className || '').localeCompare(b.className || '') || (a.name || '').localeCompare(b.name || ''));
@@ -573,6 +600,7 @@ createApp({
       const name = (fileName || '').split('/').pop().toLowerCase();
       try {
         if (name.includes('_dism_driverinfo')) parseDism(text);
+        else if (name.includes('_pnpdevicestatus.json')) parsePnpDeviceStatus(text);
         else if (name.includes('_pnpdeviceinfo.csv')) pnpCsvDevices.value = parseCsv(text);
         else if (name.includes('_pnpdeviceinfo')) parsePnp(text);
         else if (name.includes('_pnpproblemdevices.csv')) pnpProblemCsvDevices.value = parseCsv(text);
@@ -723,6 +751,12 @@ createApp({
     }
 
     function parseSystemSummary(text) { try { systemSummary.value = JSON.parse(text); } catch { systemSummary.value = {}; } }
+    function parsePnpDeviceStatus(text) {
+      try {
+        const obj = JSON.parse(text);
+        pnpDeviceStatus.value = Array.isArray(obj) ? obj : (obj.Devices || obj.devices || obj.Items || obj.items || []);
+      } catch { pnpDeviceStatus.value = []; }
+    }
     function parseHardwareInventory(text) { try { hardwareInventory.value = JSON.parse(text); } catch { hardwareInventory.value = {}; } }
     function parseWindowsVersionReg(text) { const obj = {}; text.split(/\r?\n/).forEach(line => { const m = line.match(/^\s*(\w+)\s+REG_\w+\s+(.+)$/); if (m) obj[m[1]] = m[2].trim(); }); return obj; }
 
@@ -838,6 +872,6 @@ createApp({
     function firstMeaningfulLine(text) { return (text || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || 'Loaded'; }
     function getDxDiagHeadline(text) { const model = (text.match(/System Model:\s*(.+)/i) || [])[1]; const os = (text.match(/Operating System:\s*(.+)/i) || [])[1]; return [model, os].filter(Boolean).join(' | ') || 'Display / audio diagnostics available'; }
 
-    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, operationsLogCards };
+    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
   }
 }).mount('#app');
