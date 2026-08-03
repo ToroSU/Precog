@@ -5,13 +5,20 @@ import socket
 import subprocess
 import sys
 import zipfile
+
+try:
+    import tkinter as tk
+    from tkinter import messagebox
+except Exception:
+    tk = None
+    messagebox = None
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
 
 APP_NAME = "Dowsing"
-MODE_NAME = "For Precog"
+MODE_NAME = "Default (For Precog)"
 KEEP_OUTPUT_FOLDER_AFTER_ZIP = False  # False = only keep the .zip file if compression succeeds.
 
 OUTPUT_FILES = {
@@ -63,6 +70,245 @@ OUTPUT_FILES = {
     "Collection Status": "_CollectionStatus.txt",
     "Run Log": "_RunLog.txt",
 }
+
+
+
+def get_mode_from_args() -> str | None:
+    """Read --mode default/debug from command-line arguments."""
+    for index, arg in enumerate(sys.argv):
+        lower = arg.lower()
+        if lower.startswith("--mode="):
+            value = lower.split("=", 1)[1]
+            if value in {"default", "debug"}:
+                return value
+        if lower == "--mode" and index + 1 < len(sys.argv):
+            value = sys.argv[index + 1].lower()
+            if value in {"default", "debug"}:
+                return value
+    return None
+
+
+def remember_mode_for_elevation(mode: str) -> None:
+    """Ensure the selected mode survives the UAC relaunch."""
+    if get_mode_from_args() is None:
+        sys.argv.extend(["--mode", mode])
+
+
+def select_run_mode() -> str | None:
+    """Show a small launcher for Default or Debug collection mode.
+
+    Default:
+        Collects the structured and summary data currently consumed by Precog.
+        It skips redundant raw reports and the slower deep-debug collectors.
+
+    Debug:
+        Runs the complete Dowsing collector set.
+    """
+    if tk is None:
+        print("Select Dowsing mode:")
+        print("  1. Default - Required Precog data, faster")
+        print("  2. Debug   - Full collection, slower")
+        try:
+            choice = input("Enter 1 or 2: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        return "debug" if choice == "2" else "default" if choice == "1" else None
+
+    selected: dict[str, str | None] = {"mode": None}
+
+    root = tk.Tk()
+    root.title("Dowsing")
+    root.geometry("520x330")
+    root.resizable(False, False)
+    root.configure(bg="#f8fafc")
+
+    # Center the window.
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - 520) // 2
+    y = (root.winfo_screenheight() - 330) // 2
+    root.geometry(f"520x330+{x}+{y}")
+
+    def choose(mode: str) -> None:
+        selected["mode"] = mode
+        root.destroy()
+
+    def cancel() -> None:
+        selected["mode"] = None
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", cancel)
+
+    tk.Label(
+        root,
+        text="Dowsing",
+        font=("Segoe UI", 22, "bold"),
+        bg="#f8fafc",
+        fg="#0f172a",
+    ).pack(pady=(24, 4))
+
+    tk.Label(
+        root,
+        text="Select a collection mode",
+        font=("Segoe UI", 11),
+        bg="#f8fafc",
+        fg="#64748b",
+    ).pack(pady=(0, 18))
+
+    default_frame = tk.Frame(root, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1)
+    default_frame.pack(fill="x", padx=28, pady=5)
+
+    tk.Button(
+        default_frame,
+        text="Default",
+        command=lambda: choose("default"),
+        font=("Segoe UI", 11, "bold"),
+        bg="#0f172a",
+        fg="#ffffff",
+        activebackground="#334155",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        width=13,
+        pady=9,
+    ).pack(side="left", padx=14, pady=14)
+
+    tk.Label(
+        default_frame,
+        text="Required Precog data\nFaster daily collection",
+        justify="left",
+        font=("Segoe UI", 10),
+        bg="#ffffff",
+        fg="#334155",
+    ).pack(side="left", padx=(2, 10), pady=12)
+
+    debug_frame = tk.Frame(root, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1)
+    debug_frame.pack(fill="x", padx=28, pady=5)
+
+    tk.Button(
+        debug_frame,
+        text="Debug",
+        command=lambda: choose("debug"),
+        font=("Segoe UI", 11, "bold"),
+        bg="#2563eb",
+        fg="#ffffff",
+        activebackground="#1d4ed8",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        width=13,
+        pady=9,
+    ).pack(side="left", padx=14, pady=14)
+
+    tk.Label(
+        debug_frame,
+        text="Complete Dowsing collection\nFor deep investigation",
+        justify="left",
+        font=("Segoe UI", 10),
+        bg="#ffffff",
+        fg="#334155",
+    ).pack(side="left", padx=(2, 10), pady=12)
+
+    tk.Label(
+        root,
+        text="Default is recommended for normal Precog use.",
+        font=("Segoe UI", 9),
+        bg="#f8fafc",
+        fg="#64748b",
+    ).pack(pady=(13, 0))
+
+    root.mainloop()
+    return selected["mode"]
+
+
+def build_collectors(mode: str) -> List[Tuple[str, Callable[[Path], Tuple[bool, str]]]]:
+    """Return the collector set for the selected mode."""
+
+    # Required by the current Precog UI and its structured summaries.
+    default_collectors: List[Tuple[str, Callable[[Path], Tuple[bool, str]]]] = [
+        ("OS Version", collect_os_version),
+        ("Windows Version Reg", collect_windows_version_reg),
+        ("DISM Driver Info", collect_dism_driverinfo),
+        ("PnP Devices Info", collect_pnp_devices),
+        ("PnP Devices CSV", collect_pnp_devices_csv),
+        ("PnP Problem Devices", collect_pnp_problem_devices),
+        ("PnP Problem Devices CSV", collect_pnp_problem_devices_csv),
+        ("Windows Driver CSV", collect_windows_driver_csv),
+        ("Catalog Map", collect_catalog_map),
+        ("System Summary JSON", collect_system_summary),
+        ("Hardware Inventory JSON", collect_hardware_inventory),
+        ("PowerCfg Available Sleep States", collect_powercfg_a),
+        ("PowerCfg Requests", collect_powercfg_requests),
+        ("PowerCfg LastWake", collect_powercfg_lastwake),
+        ("PowerCfg Wake Armed", collect_powercfg_wake_armed),
+        ("SleepStudy Report", collect_sleepstudy),
+        ("Installed Apps", collect_installed_apps),
+        ("Default Apps", collect_default_apps),
+        ("Scheduled Tasks", collect_scheduled_tasks),
+        ("Special Device Groups", collect_special_devices),
+        ("Installed Updates", collect_installed_updates),
+        ("Services", collect_services),
+        ("Startup Apps", collect_startup_apps),
+        ("Power Plan", collect_power_plan),
+        ("IPConfig", collect_ipconfig),
+        ("PnP Interfaces", collect_pnp_interfaces),
+        ("PnP Device Status", collect_pnp_device_status),
+    ]
+
+    if mode == "default":
+        return default_collectors
+
+    # Full raw reports and longer-running collectors for deep debugging.
+    debug_only_collectors: List[Tuple[str, Callable[[Path], Tuple[bool, str]]]] = [
+        ("SystemInfo", collect_systeminfo),
+        ("BCD Info", collect_bcdinfo),
+        ("Driver Query", collect_driver_query),
+        ("Driver Query CSV", collect_driver_query_csv),
+        ("MSInfo32", collect_msinfo32),
+        ("DXDiag", collect_dxdiag),
+        ("SetupAPI Device Log", collect_setupapi_dev_log),
+        ("Energy Report", collect_energy_report),
+        ("Event Logs", collect_event_logs),
+    ]
+
+    # Keep the logical order of the original full collection.
+    return [
+        ("OS Version", collect_os_version),
+        ("SystemInfo", collect_systeminfo),
+        ("Windows Version Reg", collect_windows_version_reg),
+        ("BCD Info", collect_bcdinfo),
+        ("DISM Driver Info", collect_dism_driverinfo),
+        ("PnP Devices Info", collect_pnp_devices),
+        ("PnP Devices CSV", collect_pnp_devices_csv),
+        ("PnP Problem Devices", collect_pnp_problem_devices),
+        ("PnP Problem Devices CSV", collect_pnp_problem_devices_csv),
+        ("Driver Query", collect_driver_query),
+        ("Driver Query CSV", collect_driver_query_csv),
+        ("Windows Driver CSV", collect_windows_driver_csv),
+        ("MSInfo32", collect_msinfo32),
+        ("DXDiag", collect_dxdiag),
+        ("Catalog Map", collect_catalog_map),
+        ("System Summary JSON", collect_system_summary),
+        ("Hardware Inventory JSON", collect_hardware_inventory),
+        ("SetupAPI Device Log", collect_setupapi_dev_log),
+        ("PowerCfg Available Sleep States", collect_powercfg_a),
+        ("PowerCfg Requests", collect_powercfg_requests),
+        ("PowerCfg LastWake", collect_powercfg_lastwake),
+        ("PowerCfg Wake Armed", collect_powercfg_wake_armed),
+        ("SleepStudy Report", collect_sleepstudy),
+        ("Energy Report", collect_energy_report),
+        ("Installed Apps", collect_installed_apps),
+        ("Default Apps", collect_default_apps),
+        ("Scheduled Tasks", collect_scheduled_tasks),
+        ("Special Device Groups", collect_special_devices),
+        ("Event Logs", collect_event_logs),
+        ("Installed Updates", collect_installed_updates),
+        ("Services", collect_services),
+        ("Startup Apps", collect_startup_apps),
+        ("Power Plan", collect_power_plan),
+        ("IPConfig", collect_ipconfig),
+        ("PnP Interfaces", collect_pnp_interfaces),
+        ("PnP Device Status", collect_pnp_device_status),
+    ]
 
 
 def is_admin() -> bool:
@@ -1311,7 +1557,9 @@ $result = foreach ($device in (Get-PnpDevice -ErrorAction SilentlyContinue)) {
     SchemaVersion = 'Precog.PnpDeviceStatus.v1'
     GeneratedTime = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     DeviceCount = @($result).Count
-    ProblemDeviceCount = @($result | Where-Object { $_.ProblemCode -ne 0 }).Count
+    PresentDeviceCount = @($result | Where-Object { $_.Present -eq $true }).Count
+    ProblemDeviceCount = @($result | Where-Object { $_.Present -eq $true -and $_.ProblemCode -ne 0 }).Count
+    GhostDeviceCount = @($result | Where-Object { $_.Present -eq $false }).Count
     Devices = @($result | Sort-Object Class,FriendlyName,InstanceId)
 } | ConvertTo-Json -Depth 8
 """
@@ -1420,6 +1668,17 @@ def create_output_dir(base_dir: Path | None = None) -> Path:
 
 
 def main() -> int:
+    global MODE_NAME
+
+    mode = get_mode_from_args()
+    if mode is None:
+        mode = select_run_mode()
+        if mode is None:
+            print("[INFO] Dowsing cancelled.")
+            return 0
+        remember_mode_for_elevation(mode)
+
+    MODE_NAME = "Default (For Precog)" if mode == "default" else "Debug (Full Collection)"
     ensure_admin()
 
     computer_name = socket.gethostname()
@@ -1427,48 +1686,12 @@ def main() -> int:
     out_dir = create_output_dir()
     run_log_path = out_dir / OUTPUT_FILES["Run Log"]
 
-    collectors: List[Tuple[str, Callable[[Path], Tuple[bool, str]]]] = [
-        ("OS Version", collect_os_version),
-        ("SystemInfo", collect_systeminfo),
-        ("Windows Version Reg", collect_windows_version_reg),
-        ("BCD Info", collect_bcdinfo),
-        ("DISM Driver Info", collect_dism_driverinfo),
-        ("PnP Devices Info", collect_pnp_devices),
-        ("PnP Devices CSV", collect_pnp_devices_csv),
-        ("PnP Problem Devices", collect_pnp_problem_devices),
-        ("PnP Problem Devices CSV", collect_pnp_problem_devices_csv),
-        ("Driver Query", collect_driver_query),
-        ("Driver Query CSV", collect_driver_query_csv),
-        ("Windows Driver CSV", collect_windows_driver_csv),
-        ("MSInfo32", collect_msinfo32),
-        ("DXDiag", collect_dxdiag),
-        ("Catalog Map", collect_catalog_map),
-        ("System Summary JSON", collect_system_summary),
-        ("Hardware Inventory JSON", collect_hardware_inventory),
-        ("SetupAPI Device Log", collect_setupapi_dev_log),
-        ("PowerCfg Available Sleep States", collect_powercfg_a),
-        ("PowerCfg Requests", collect_powercfg_requests),
-        ("PowerCfg LastWake", collect_powercfg_lastwake),
-        ("PowerCfg Wake Armed", collect_powercfg_wake_armed),
-        ("SleepStudy Report", collect_sleepstudy),
-        ("Energy Report", collect_energy_report),
-        ("Installed Apps", collect_installed_apps),
-        ("Default Apps", collect_default_apps),
-        ("Scheduled Tasks", collect_scheduled_tasks),
-        ("Special Device Groups", collect_special_devices),
-        ("Event Logs", collect_event_logs),
-        ("Installed Updates", collect_installed_updates),
-        ("Services", collect_services),
-        ("Startup Apps", collect_startup_apps),
-        ("Power Plan", collect_power_plan),
-        ("IPConfig", collect_ipconfig),
-        ("PnP Interfaces", collect_pnp_interfaces),
-        ("PnP Device Status", collect_pnp_device_status),
-    ]
+    collectors = build_collectors(mode)
 
     run_lines = [
         f"[OK] {APP_NAME} started",
         f"[OK] Mode: {MODE_NAME}",
+        f"[OK] Collector count: {len(collectors)}",
         f"[OK] ComputerName: {computer_name}",
         f"[OK] Output folder: {out_dir}",
         f"[OK] KeepOutputFolderAfterZip: {KEEP_OUTPUT_FOLDER_AFTER_ZIP}",
