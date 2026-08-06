@@ -15,6 +15,7 @@ createApp({
     const dragOver = ref(false);
     const dragCounter = ref(0);
     const loadedFileNames = ref([]);
+    const loadedSourceName = ref('');
     const selectedPanel = ref('system');
     const keyword = ref('');
     const filterProvider = ref('All');
@@ -106,6 +107,18 @@ createApp({
       };
     });
 
+    const windowsReleaseLabel = computed(() => {
+      const displayVersion = winRegParsed.value.DisplayVersion || winRegParsed.value.ReleaseId || '';
+      const build = winRegParsed.value.CurrentBuild || systemSummary.value.OSBuild || '';
+      const ubrRaw = winRegParsed.value.UBR || '';
+      const ubr = ubrRaw ? formatRegValue('UBR', ubrRaw) : '';
+      const fullBuild = [build, ubr].filter(Boolean).join('.');
+      if (displayVersion && fullBuild) return `${displayVersion} · Build ${fullBuild}`;
+      if (displayVersion) return displayVersion;
+      if (fullBuild) return `Build ${fullBuild}`;
+      return systemHeadline.value.build || 'N/A';
+    });
+
     const secureBootClass = computed(() => {
       const v = (systemHeadline.value.secureBoot || '').toLowerCase();
       if (v.includes('on')) return 'text-emerald-600';
@@ -167,7 +180,7 @@ createApp({
         if (st.isProblem) problemDrivers++;
         if (isNonWhql(d)) nonWhql++;
       });
-      return { totalDrivers: dismDrivers.value.length, installed, storeOnly, problem: problemDevicesCombined.value.length + nonWhql };
+      return { totalDrivers: dismDrivers.value.length, installed, storeOnly, problem: problemDevicesCombined.value.length + nonWhql, nonWhql };
     });
 
 
@@ -306,18 +319,71 @@ createApp({
       return [...groups.entries()].map(([className, devices]) => ({ className, devices })).sort((a, b) => a.className.localeCompare(b.className));
     });
 
+    const disabledDevices = computed(() => fullDeviceList.value.filter(dev => {
+      const statusText = [
+        dev.status,
+        dev.problem,
+        dev.deviceStatus && dev.deviceStatus.ProblemName,
+        dev.deviceStatus && dev.deviceStatus.ProblemCode,
+        dev.deviceStatus && dev.deviceStatus.ConfigManagerErrorCode
+      ].filter(v => v !== undefined && v !== null).join(' ');
+      return /CM_PROB_DISABLED|\bdisabled\b/i.test(statusText) || /(^|\D)22(\D|$)/.test(statusText);
+    }));
+
+    const powerRequestStatus = computed(() => {
+      const text = rawPowerCfgRequests.value.trim();
+      if (!text) return 'Not Available';
+      const normalized = text.toLowerCase();
+      const hasActiveRequest = /\[[^\]]+\]/.test(text) ||
+        /(?:display|system|awaymode|execution|perfboost|activelockscreen):\s*(?!none\b)[^\r\n]+/i.test(text);
+      if (hasActiveRequest) return 'Warning';
+      if (normalized.includes('none') || normalized.includes('無')) return 'Available';
+      return 'Available';
+    });
+
+    function healthStatusClass(status) {
+      if (status === 'Available') return 'bg-emerald-100 text-emerald-700';
+      if (status === 'Warning') return 'bg-amber-100 text-amber-700';
+      if (status === 'Error') return 'bg-red-100 text-red-700';
+      return 'bg-slate-100 text-slate-600';
+    }
+
     const platformHealthCards = computed(() => {
-      const requestsText = rawPowerCfgRequests.value.trim();
-      const requestsClear = requestsText && !/\b(?!DISPLAY|SYSTEM|AWAYMODE|EXECUTION|PERFBOOST|ACTIVELOCKSCREEN|None)\S+:/i.test(requestsText) && !/\[[^\]]+\]/.test(requestsText);
+      const wakeAvailable = !!(rawPowerCfgLastWake.value || rawPowerCfgWakeArmed.value);
+      const reportCount = [rawSleepStudyText.value, rawEnergyReportText.value].filter(Boolean).length;
       return [
-        { title: 'PowerCfg /a', status: rawPowerCfgA.value ? 'Loaded' : 'Missing', detail: rawPowerCfgA.value ? firstMeaningfulLine(rawPowerCfgA.value) : 'Not loaded' },
-        { title: 'Power Requests', status: rawPowerCfgRequests.value ? (requestsClear ? 'OK' : 'Loaded') : 'Missing', detail: rawPowerCfgRequests.value ? (requestsClear ? 'No active requests detected' : 'Available for review') : 'Not loaded' },
-        { title: 'Last Wake', status: rawPowerCfgLastWake.value ? 'Loaded' : 'Missing', detail: rawPowerCfgLastWake.value ? firstMeaningfulLine(rawPowerCfgLastWake.value) : 'Not loaded' },
-        { title: 'Wake Armed', status: rawPowerCfgWakeArmed.value ? 'Loaded' : 'Missing', detail: rawPowerCfgWakeArmed.value ? firstMeaningfulLine(rawPowerCfgWakeArmed.value) : 'Not loaded' },
-        { title: 'DxDiag', status: rawDxDiagText.value ? 'Loaded' : 'Missing', detail: rawDxDiagText.value ? getDxDiagHeadline(rawDxDiagText.value) : 'Not loaded' },
-        { title: 'SleepStudy', status: rawSleepStudyText.value ? 'Loaded' : 'Missing', detail: rawSleepStudyText.value ? 'Modern Standby report loaded' : 'Not loaded' },
-        { title: 'Energy Report', status: rawEnergyReportText.value ? 'Loaded' : 'Missing', detail: rawEnergyReportText.value ? 'Power efficiency report loaded' : 'Not loaded' },
-        { title: 'Vendor Devices', status: vendorRows.value.length ? 'Loaded' : 'Missing', detail: vendorRows.value.length ? `${vendorRows.value.length} vendor-related rows` : 'Not loaded' }
+        {
+          title: 'Sleep Capability',
+          status: rawPowerCfgA.value ? 'Available' : 'Not Available',
+          value: rawPowerCfgA.value ? 'Sleep states collected' : 'No capability data',
+          detail: rawPowerCfgA.value ? firstMeaningfulLine(rawPowerCfgA.value) : 'powercfg /a was not found in the loaded source.',
+          cardClass: rawPowerCfgA.value ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50',
+          labelClass: rawPowerCfgA.value ? 'text-emerald-600' : 'text-slate-400'
+        },
+        {
+          title: 'Power Requests',
+          status: powerRequestStatus.value,
+          value: powerRequestStatus.value === 'Warning' ? 'Active request detected' : (rawPowerCfgRequests.value ? 'No blocking request detected' : 'No request data'),
+          detail: rawPowerCfgRequests.value ? firstMeaningfulLine(rawPowerCfgRequests.value) : 'powercfg /requests was not found in the loaded source.',
+          cardClass: powerRequestStatus.value === 'Warning' ? 'border-amber-200 bg-amber-50' : (rawPowerCfgRequests.value ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'),
+          labelClass: powerRequestStatus.value === 'Warning' ? 'text-amber-600' : (rawPowerCfgRequests.value ? 'text-emerald-600' : 'text-slate-400')
+        },
+        {
+          title: 'Wake Information',
+          status: wakeAvailable ? 'Available' : 'Not Available',
+          value: wakeAvailable ? 'Wake data collected' : 'No wake data',
+          detail: rawPowerCfgLastWake.value ? firstMeaningfulLine(rawPowerCfgLastWake.value) : (rawPowerCfgWakeArmed.value ? firstMeaningfulLine(rawPowerCfgWakeArmed.value) : 'Wake source and wake-armed data were not found.'),
+          cardClass: wakeAvailable ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50',
+          labelClass: wakeAvailable ? 'text-emerald-600' : 'text-slate-400'
+        },
+        {
+          title: 'Power Reports',
+          status: reportCount ? 'Available' : 'Not Available',
+          value: `${reportCount} / 2 reports available`,
+          detail: 'SleepStudy and Energy Report availability.',
+          cardClass: reportCount ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50',
+          labelClass: reportCount ? 'text-emerald-600' : 'text-slate-400'
+        }
       ];
     });
 
@@ -339,7 +405,7 @@ createApp({
 
 
 
-    const combinedInstalledApps = computed(() => {
+    const allCombinedInstalledApps = computed(() => {
       const map = new Map();
 
       function addApp(row, source) {
@@ -379,17 +445,25 @@ createApp({
       installedAppsAppx.value.forEach(r => addApp(r, 'Appx'));
       provisionedApps.value.forEach(r => addApp(r, 'Provisioned'));
 
-      return [...map.values()]
-        .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft)
-        .sort((a, b) => a.name.localeCompare(b.name));
+      return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
     });
 
-    const filteredStartupApps = computed(() => {
-      return startupApps.value
-        .map(r => ({ ...r, isMicrosoft: isMicrosoftApp({ DisplayName: r.Name, Publisher: r.Command }) }))
-        .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft)
-        .sort((a, b) => String(a.Name || '').localeCompare(String(b.Name || '')));
-    });
+    const combinedInstalledApps = computed(() => allCombinedInstalledApps.value
+      .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft));
+
+    const allStartupApps = computed(() => startupApps.value
+      .map(r => ({ ...r, isMicrosoft: isMicrosoftApp({ DisplayName: r.Name, Publisher: r.Command }) }))
+      .sort((a, b) => String(a.Name || '').localeCompare(String(b.Name || ''))));
+
+    const filteredStartupApps = computed(() => allStartupApps.value
+      .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft));
+
+    const appsOverviewCards = computed(() => [
+      { title: 'Installed Applications', count: allCombinedInstalledApps.value.length, note: 'Merged and deduplicated' },
+      { title: 'Startup Applications', count: allStartupApps.value.length, note: 'Configured startup entries' },
+      { title: 'OEM Applications', count: allCombinedInstalledApps.value.filter(app => !app.isMicrosoft).length, note: 'Non-Microsoft software' },
+      { title: 'Microsoft Applications', count: allCombinedInstalledApps.value.filter(app => app.isMicrosoft).length, note: 'Microsoft software' }
+    ]);
 
     const operationsLogCards = computed(() => [
       { title: 'Installed Updates', count: installedUpdates.value.length, kind: 'table' },
@@ -419,7 +493,7 @@ createApp({
         [cpu.NumberOfCores && cpu.NumberOfLogicalProcessors ? `${cpu.NumberOfCores}C / ${cpu.NumberOfLogicalProcessors}T` : (cpu.Cores && cpu.Threads ? `${cpu.Cores}C / ${cpu.Threads}T` : ''), cpu.MaxClockSpeed ? `${cpu.MaxClockSpeed} MHz` : (cpu.MaxClockMHz ? `${cpu.MaxClockMHz} MHz` : ''), cpu.Manufacturer],
         [cpu.SocketDesignation || cpu.Socket]
       ));
-      sections.push({ title: 'CPU', badge: cpuRows.length ? `${cpuRows.length}` : '0', rows: cpuRows });
+      sections.push({ title: 'CPU', badge: cpuRows.length ? `${cpuRows.length}` : '0', rows: cpuRows, wide: false });
 
       const mem = hw.Memory || {};
       const memoryRows = asArray(mem.Modules).map(m => makeConfigRow(
@@ -427,7 +501,7 @@ createApp({
         [m.CapacityGB ? `${m.CapacityGB} GB` : bytesToGB(m.Capacity), m.ConfiguredClockSpeedMHz ? `${m.ConfiguredClockSpeedMHz} MHz` : (m.ConfiguredClockSpeed ? `${m.ConfiguredClockSpeed} MHz` : (m.SpeedMHz ? `${m.SpeedMHz} MHz` : (m.Speed ? `${m.Speed} MHz` : ''))), m.Slot || m.Bank],
         [m.SerialNumber]
       ));
-      sections.push({ title: 'Memory', badge: mem.TotalGB ? `${mem.TotalGB} GB` : `${memoryRows.length}`, rows: memoryRows });
+      sections.push({ title: 'Memory', badge: mem.TotalGB ? `${mem.TotalGB} GB` : `${memoryRows.length}`, rows: memoryRows, wide: false });
 
       const storage = hw.Storage || {};
       const storageRows = asArray(storage.PhysicalDisks).map(d => makeConfigRow(
@@ -435,7 +509,7 @@ createApp({
         [d.SizeGB ? `${d.SizeGB} GB` : bytesToGB(d.Size), d.BusType || d.InterfaceType, d.MediaType, d.HealthStatus],
         [d.SerialNumber]
       ));
-      sections.push({ title: 'Storage', badge: storageRows.length ? `${storageRows.length}` : '0', rows: storageRows });
+      sections.push({ title: 'Storage', badge: storageRows.length ? `${storageRows.length}` : '0', rows: storageRows, wide: true });
 
       const display = hw.Display || {};
       const monitorRows = asArray(display.Monitors).map(m => makeConfigRow(
@@ -443,50 +517,86 @@ createApp({
         [m.Active === true ? 'Active' : (m.Active === false ? 'Inactive' : ''), m.Manufacturer || m.ManufacturerCode, m.Model || m.PanelCode || m.ProductCode],
         [m.InstanceName]
       ));
-      sections.push({ title: 'Display / Panel', badge: monitorRows.length ? `${monitorRows.length}` : '0', rows: monitorRows });
+      sections.push({ title: 'Display / Panel', badge: monitorRows.length ? `${monitorRows.length}` : '0', rows: monitorRows, wide: false });
 
       const gpuRows = asArray(hw.Graphics).map(g => makeConfigRow(
         g.Name,
         [g.DriverVersion, g.VideoProcessor, g.AdapterRAMGB ? `${g.AdapterRAMGB} GB VRAM` : '', g.CurrentHorizontalResolution && g.CurrentVerticalResolution ? `${g.CurrentHorizontalResolution}x${g.CurrentVerticalResolution}` : ''],
         [g.PNPDeviceID]
       ));
-      sections.push({ title: 'Graphics', badge: gpuRows.length ? `${gpuRows.length}` : '0', rows: gpuRows });
+      sections.push({ title: 'Graphics', badge: gpuRows.length ? `${gpuRows.length}` : '0', rows: gpuRows, wide: true });
+
+      const system = hw.System || {};
+      const firmwareRows = [makeConfigRow(
+        [system.Manufacturer, system.BaseBoardProduct].filter(Boolean).join(' ') || system.Model || 'Motherboard / Firmware',
+        [system.BaseBoardVersion ? `Board ${system.BaseBoardVersion}` : '', system.BIOSVersion ? `BIOS ${system.BIOSVersion}` : '', system.BIOSReleaseDate ? `Released ${system.BIOSReleaseDate}` : ''],
+        [system.SystemSKU, system.SecureBoot ? `Secure Boot: ${system.SecureBoot}` : '']
+      )].filter(r => r.name !== 'Unknown' || r.detail || r.meta);
+      sections.push({ title: 'Motherboard / Firmware', badge: firmwareRows.length ? `${firmwareRows.length}` : '0', rows: firmwareRows, wide: false });
 
       const network = hw.Network || {};
-      const networkRows = asArray(network.Adapters).map(n => makeConfigRow(
+      const lanSource = asArray(network.LAN).length ? asArray(network.LAN) : asArray(network.Adapters).filter(n => String(n.Type || '').toUpperCase() === 'LAN');
+      const networkRows = lanSource.map(n => makeConfigRow(
         n.DisplayName || n.InterfaceDescription || n.NetConnectionID || n.Name,
-        [n.Type, n.Status, n.LinkSpeed, n.Manufacturer, n.AdapterType, n.NetEnabled === true ? 'Enabled' : (n.NetEnabled === false ? 'Disabled' : '')],
+        [n.Type || 'LAN', n.Status, n.LinkSpeed, n.Manufacturer, n.NetEnabled === true ? 'Enabled' : (n.NetEnabled === false ? 'Disabled' : '')],
         [n.MacAddress || n.MACAddress, n.InterfaceGuid, n.PNPDeviceID]
       ));
-      sections.push({ title: 'Network', badge: networkRows.length ? `${networkRows.length}` : '0', rows: networkRows });
+      sections.push({ title: 'Wired Network', badge: networkRows.length ? `${networkRows.length}` : '0', rows: networkRows, wide: true });
 
-      const bluetoothRows = asArray(network.Bluetooth).map(b => makeConfigRow(
-        b.FriendlyName,
-        [b.Status, b.Problem],
+      const wlanSource = asArray(network.WLAN).length ? asArray(network.WLAN) : asArray(network.Adapters).filter(n => String(n.Type || '').toUpperCase() === 'WLAN');
+      const wirelessRows = wlanSource.map(n => makeConfigRow(
+        n.DisplayName || n.InterfaceDescription || n.NetConnectionID || n.Name,
+        ['WLAN', n.Status, n.LinkSpeed, n.Manufacturer, n.NetEnabled === true ? 'Enabled' : (n.NetEnabled === false ? 'Disabled' : '')],
+        [n.MacAddress || n.MACAddress, n.InterfaceGuid, n.PNPDeviceID]
+      ));
+      asArray(network.Bluetooth).forEach(b => wirelessRows.push(makeConfigRow(
+        b.FriendlyName || b.Name || 'Bluetooth Adapter',
+        ['Bluetooth', b.Status, b.Problem],
         [b.InstanceId]
-      ));
-      sections.push({ title: 'Bluetooth', badge: bluetoothRows.length ? `${bluetoothRows.length}` : '0', rows: bluetoothRows });
+      )));
+      sections.push({ title: 'Wireless', badge: wirelessRows.length ? `${wirelessRows.length}` : '0', rows: wirelessRows, wide: false });
 
-      const audioRows = asArray(hw.Audio).map(a => makeConfigRow(
-        a.FriendlyName,
-        [a.Status, a.Problem],
-        [a.InstanceId]
-      ));
-      sections.push({ title: 'Audio', badge: audioRows.length ? `${audioRows.length}` : '0', rows: audioRows });
+      // System Configuration is a functional inventory, not a raw PnP dump.
+      // Keep only devices that clearly represent the requested hardware function.
+      const audioRows = asArray(hw.Audio)
+        .filter(a => {
+          const name = cleanText(a.FriendlyName || a.Name).toLowerCase();
+          const cls = cleanText(a.Class).toLowerCase();
+          const id = cleanText(a.InstanceId).toLowerCase();
+          const clearlyAudio = /audio|sound|smart sound|realtek|dolby|hdaudio|intelaudio/.test(`${name} ${cls} ${id}`);
+          const unrelated = /high precision event timer|system timer|enumerator|root complex|pci express root|acpi x64-based pc/.test(name);
+          return clearlyAudio && !unrelated;
+        })
+        .map(a => makeConfigRow(
+          a.FriendlyName || a.Name,
+          [a.Status, a.Problem],
+          [a.InstanceId]
+        ));
+      sections.push({ title: 'Audio', badge: audioRows.length ? `${audioRows.length}` : '0', rows: audioRows, wide: audioRows.length > 2 });
 
-      const cameraRows = asArray(hw.Camera).map(c => makeConfigRow(
-        c.FriendlyName,
-        [c.Class, c.Status, c.Problem],
-        [c.InstanceId]
-      ));
-      sections.push({ title: 'Camera', badge: cameraRows.length ? `${cameraRows.length}` : '0', rows: cameraRows });
+      const cameraRows = asArray(hw.Camera)
+        .filter(c => {
+          const name = cleanText(c.FriendlyName || c.Name).toLowerCase();
+          const cls = cleanText(c.Class).toLowerCase();
+          const id = cleanText(c.InstanceId).toLowerCase();
+          const clearlyCamera = /camera|webcam|imaging|image/.test(`${name} ${cls}`) || cls === 'camera' || cls === 'image';
+          const genericChildOrPlatform = /acpi x64-based pc|i2c hid device|usb input device|hid-compliant|composite device|root hub|enumerator/.test(name);
+          const cameraIdentity = /camera|webcam|ir camera|rgb camera/.test(name) || /camera|image/.test(cls) || /vid_[0-9a-f]{4}.*pid_[0-9a-f]{4}/.test(id);
+          return clearlyCamera && cameraIdentity && !genericChildOrPlatform;
+        })
+        .map(c => makeConfigRow(
+          c.FriendlyName || c.Name,
+          [c.Status, c.Problem],
+          [c.InstanceId]
+        ));
+      sections.push({ title: 'Camera', badge: cameraRows.length ? `${cameraRows.length}` : '0', rows: cameraRows, wide: false });
 
       const batteryRows = asArray(hw.Battery).map(b => makeConfigRow(
         b.Name || b.DeviceID,
         [b.Manufacturer, b.EstimatedChargeRemaining !== null && b.EstimatedChargeRemaining !== undefined ? `${b.EstimatedChargeRemaining}%` : '', b.BatteryStatus ? `Status ${b.BatteryStatus}` : ''],
         [b.DeviceID]
       ));
-      sections.push({ title: 'Battery', badge: batteryRows.length ? `${batteryRows.length}` : '0', rows: batteryRows });
+      sections.push({ title: 'Battery', badge: batteryRows.length ? `${batteryRows.length}` : '0', rows: batteryRows, wide: false });
 
       const input = hw.Input || {};
       const inputRows = asArray(input.HID).slice(0, 50).map(i => makeConfigRow(
@@ -494,18 +604,18 @@ createApp({
         [i.Class, i.Status, i.Problem],
         [i.InstanceId]
       ));
-      sections.push({ title: 'Input / HID', badge: inputRows.length ? `${inputRows.length}` : '0', rows: inputRows });
+      sections.push({ title: 'Input / HID', badge: inputRows.length ? `${inputRows.length}` : '0', rows: inputRows, wide: true });
 
       const usbRows = asArray(hw.USB).slice(0, 80).map(u => makeConfigRow(
         u.FriendlyName,
         [u.Class, u.Status, u.Problem],
         [u.InstanceId]
       ));
-      sections.push({ title: 'USB', badge: usbRows.length ? `${usbRows.length}` : '0', rows: usbRows });
+      sections.push({ title: 'USB', badge: usbRows.length ? `${usbRows.length}` : '0', rows: usbRows, wide: true });
 
       const tpm = asArray(hw.Security && hw.Security.TPM)[0] || asArray(hw.TPM)[0];
       const securityRows = tpm ? [makeConfigRow('TPM', [tpm.TpmPresent ? 'Present' : 'Not present', tpm.TpmReady ? 'Ready' : 'Not ready', tpm.ManufacturerIdTxt, tpm.SpecVersion], [tpm.ManufacturerVersion])] : [];
-      sections.push({ title: 'Security', badge: securityRows.length ? `${securityRows.length}` : '0', rows: securityRows });
+      sections.push({ title: 'Security', badge: securityRows.length ? `${securityRows.length}` : '0', rows: securityRows, wide: false });
 
       return sections;
     });
@@ -556,6 +666,8 @@ createApp({
         return;
       }
       selectedPanel.value = 'system';
+      loadedSourceName.value = zipFile.name || 'Dowsing ZIP';
+      document.title = `Precog - ${loadedSourceName.value.replace(/\.zip$/i, '').slice(0, 10)}`;
       try {
         const zip = await JSZip.loadAsync(zipFile);
         const entries = Object.values(zip.files).filter(entry => !entry.dir);
@@ -616,6 +728,9 @@ createApp({
 
     function processFiles(files) {
       loadedFileNames.value = files.map(f => f.webkitRelativePath || f.name).sort((a, b) => a.localeCompare(b));
+      const firstPath = files[0] && (files[0].webkitRelativePath || files[0].name) || '';
+      loadedSourceName.value = firstPath.includes('/') ? firstPath.split('/')[0] : (firstPath || 'Selected files');
+      document.title = `Precog - ${loadedSourceName.value.slice(0, 10)}`;
       selectedPanel.value = 'system';
       files.forEach(file => {
         const reader = new FileReader();
@@ -792,6 +907,30 @@ createApp({
       return value;
     }
 
+    function formatBiosReleaseDate(value) {
+      if (value == null || value === '') return 'N/A';
+      const raw = String(value).trim();
+      const microsoftJsonDate = raw.match(/^\/?Date\((-?\d+)(?:[+-]\d{4})?\)\/?$/i);
+      let date = null;
+
+      if (microsoftJsonDate) {
+        date = new Date(Number(microsoftJsonDate[1]));
+      } else if (/^\d{13}$/.test(raw)) {
+        date = new Date(Number(raw));
+      } else if (/^\d{10}$/.test(raw)) {
+        date = new Date(Number(raw) * 1000);
+      } else {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) date = parsed;
+      }
+
+      if (!date || Number.isNaN(date.getTime())) return raw;
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
 
 
     function isGhostProblemRecord(d) {
@@ -807,10 +946,82 @@ createApp({
       collapsedDeviceClasses.value = { ...collapsedDeviceClasses.value, [className]: !isDeviceClassCollapsed(className) };
     }
 
+    function showDeviceOverview() {
+      selectedDevice.value = null;
+    }
+
+    function getDeviceCategoryEmoji(className) {
+      const key = String(className || '').toLowerCase();
+      const map = [
+        [/audio|sound|media/, '🔊'],
+        [/battery/, '🔋'],
+        [/bluetooth/, '🟦'],
+        [/camera|image/, '📷'],
+        [/display|monitor/, '🖥️'],
+        [/keyboard/, '⌨️'],
+        [/mouse|pointing|touchpad/, '🖱️'],
+        [/network|net/, '🌐'],
+        [/processor|cpu/, '💻'],
+        [/storage|disk|drive|scsiadapter|volume/, '💾'],
+        [/usb|universal serial/, '🔌'],
+        [/system/, '⚙️'],
+        [/firmware|bios/, '🧩'],
+        [/security|tpm/, '🔐'],
+        [/sensor/, '📡'],
+        [/printer|printqueue/, '🖨️'],
+        [/port|com|lpt/, '🔗'],
+        [/software/, '📦'],
+        [/biometric/, '🧬'],
+        [/hidclass/, '🎮'],
+        [/unknown/, '❓']
+      ];
+      const hit = map.find(([pattern]) => pattern.test(key));
+      return hit ? hit[1] : '•';
+    }
+
     function isHighlightedDevice(dev) { if (!selectedOem.value) return false; return (dev.activeDriver || '').toLowerCase() === (selectedOem.value.publishedName || '').toLowerCase(); }
     function getDriverObjectByName(name) { if (!name) return null; return dismDrivers.value.find(d => d.publishedName.toLowerCase() === String(name).toLowerCase()) || null; }
     function openDriverFromDevice(dev) { const d = getDriverObjectByName(dev.activeDriver); if (d) { selectedOem.value = d; selectedPanel.value = 'driver'; } }
 
-    return { dragOver, loadedFileNames, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, platformHealthCards, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, combinedInstalledApps, filteredStartupApps, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
+    function openDeviceFromDriver(dev) {
+      if (!dev) return;
+      const instanceId = String(dev.instanceId || dev.InstanceId || '').toLowerCase();
+      const target = fullDeviceList.value.find(item => String(item.instanceId || item.InstanceId || '').toLowerCase() === instanceId) || {
+        name: dev.description || dev.name || 'Unknown Device',
+        instanceId: dev.instanceId || dev.InstanceId || '',
+        className: dev.deviceClass || dev.Class || 'Unknown',
+        activeDriver: selectedOem.value?.publishedName || '',
+        status: dev.specificInfStatus || '',
+        isProblem: !!getProblemData(dev.instanceId || dev.InstanceId),
+        hwids: dev.hwids || []
+      };
+      selectedDevice.value = target;
+      if (target.className) collapsedDeviceClasses.value[target.className] = false;
+      selectedPanel.value = 'deviceManager';
+    }
+
+    function openProblemDevice(record) {
+      if (!record) return;
+      const instanceId = String(record.pnpId || record.instanceId || record.InstanceId || '').toLowerCase();
+      const target = fullDeviceList.value.find(item => String(item.instanceId || item.InstanceId || '').toLowerCase() === instanceId);
+      if (target) {
+        selectedDevice.value = target;
+        if (target.className) collapsedDeviceClasses.value[target.className] = false;
+      } else {
+        selectedDevice.value = {
+          name: record.name || record.description || record.FriendlyName || 'Unknown Device',
+          instanceId: record.pnpId || record.instanceId || record.InstanceId || '',
+          className: record.Class || record.className || 'Unknown',
+          status: record.Status || '',
+          isProblem: true,
+          isGhost: isGhostProblemRecord(record),
+          activeDriver: '',
+          hwids: []
+        };
+      }
+      selectedPanel.value = 'deviceManager';
+    }
+
+    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
   }
 }).mount('#app');

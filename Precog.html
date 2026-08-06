@@ -26,8 +26,8 @@
         <input id="zipInput" type="file" accept=".zip,application/zip" class="hidden" @change="handleZipUpload">
           <div class="text-7xl mb-5">👁️</div>
           <h1 class="text-3xl font-black tracking-tight text-slate-900">Precog</h1>
-          <p class="mt-3 text-slate-500">Driver / Device / Platform Insight & Triage Tool</p>
-          <p class="mt-2 text-xs text-slate-400">請拖拉 Dowsing folder / Dowsing .zip，或使用下方按鈕選取</p>
+          <p class="mt-3 text-slate-500">Platform Insight Tool</p>
+          <p class="mt-2 text-xs text-slate-400">請拖拉 Dowsing folder / .zip，或使用下方按鈕選取</p>
         </label>
         <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
           <button @click.stop="openFolderPicker" class="px-5 py-3 rounded-2xl bg-slate-900 text-white text-sm font-black hover:bg-slate-700">Select Dowsing Folder</button>
@@ -37,26 +37,39 @@
     </div>
 
     <template v-else>
-      <div class="bg-white rounded-3xl shadow-sm border border-slate-200 px-4 py-3 shrink-0">
-        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2">
-          <div>
-            <div class="flex items-center gap-3">
-              <h1 class="text-2xl font-black tracking-tight text-slate-900">Precog</h1>
-              <span class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white">v2.0-T04</span>
-            </div>
-            <p class="text-sm text-slate-500 mt-1">Driver / Device / Platform Insight & Triage System</p>
+      <div class="compact-app-header bg-white rounded-3xl shadow-sm border border-slate-200 px-4 shrink-0">
+        <div class="compact-app-header-inner">
+          <div class="compact-brand shrink-0" title="Driver / Device / Platform Insight & Triage System">
+            <h1 class="text-xl font-black tracking-tight text-slate-900">Precog</h1>
+            <span class="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-900 text-white">v1.0</span>
           </div>
-          <div class="flex flex-wrap gap-2">
+
+          <nav class="compact-nav custom-scrollbar" aria-label="Primary navigation">
             <button @click="selectedPanel='system'" :class="navClass('system')">System Info</button>
             <button @click="selectedOem = null; selectedPanel='overview'" :class="navClass('overview')">Driver Status</button>
             <button @click="selectedPanel='deviceManager'" :class="navClass('deviceManager')">Device Manager</button>
-            <button @click="selectedPanel='configuration'" :class="navClass('configuration')">System Config.</button>
+            <button @click="selectedPanel='configuration'" :class="navClass('configuration')">Hardware Config.</button>
             <button @click="selectedPanel='platform'" :class="navClass('platform')">System Health</button>
             <button @click="selectedPanel='apps'" :class="navClass('apps')">Apps</button>
             <button @click="selectedPanel='systemLogs'" :class="navClass('systemLogs')">System Logs</button>
             <button @click="selectedPanel='collection'" :class="navClass('collection')">Log Collection</button>
-            <button @click="resetTool" class="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold">Reload</button>
+          </nav>
+
+          <div class="compact-machine-context shrink-0" title="Machine Context">
+            <div class="compact-machine-model" :title="systemHeadline.model || 'N/A'">
+              <span aria-hidden="true">▣</span>
+              <span>{{ systemHeadline.model || 'N/A' }}</span>
+            </div>
+            <div class="compact-machine-meta">
+              <span>{{ systemHeadline.sku || 'N/A' }}</span>
+              <span class="context-dot">•</span>
+              <span :title="systemHeadline.bios || 'N/A'">{{ (systemHeadline.bios || 'N/A').split('|')[0].trim() }}</span>
+              <span class="context-dot">•</span>
+              <span class="compact-source" :title="loadedSourceName">{{ loadedSourceName || 'N/A' }}</span>
+            </div>
           </div>
+
+          <button @click="resetTool" class="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold shrink-0">Reload</button>
         </div>
       </div>
 
@@ -73,20 +86,20 @@
           </div>
         </div>
         <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
-          <div class="xl:col-span-5 border-r min-h-0 overflow-y-auto custom-scrollbar p-3 space-y-3">
+          <div class="xl:col-span-5 border-r min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2">
             <div v-for="group in filteredDeviceGroups" :key="group.className" class="rounded-2xl border overflow-hidden">
               <div @click="toggleDeviceClass(group.className)" class="bg-slate-50 px-4 py-2 font-black text-sm border-b flex justify-between items-center cursor-pointer select-none hover:bg-slate-100">
-                <span><span class="inline-block w-4 text-slate-400">{{ isDeviceClassCollapsed(group.className) ? '▸ ' : '▾ ' }}</span>{{ group.className }}</span>
+                <span class="flex items-center min-w-0"><span class="inline-block w-4 text-slate-400 shrink-0">{{ isDeviceClassCollapsed(group.className) ? '▸ ' : '▾ ' }}</span><span class="mr-2 shrink-0" aria-hidden="true">{{ getDeviceCategoryEmoji(group.className) }}</span><span class="truncate">{{ group.className }}</span></span>
                 <span class="text-xs text-slate-400">{{ group.devices.length }}</span>
               </div>
               <div v-show="!isDeviceClassCollapsed(group.className)" class="divide-y divide-slate-100">
                 <div v-for="dev in group.devices" :key="dev.instanceId" @click="selectedDevice=dev"
-                     :class="['p-3 text-sm cursor-pointer border-l-4', selectedDevice && selectedDevice.instanceId===dev.instanceId ? 'bg-blue-50 border-l-blue-600' : isHighlightedDevice(dev) ? 'bg-blue-50/60 border-l-blue-400' : dev.isProblem ? 'bg-red-50 border-l-red-400' : dev.isGhost ? 'bg-amber-50/60 border-l-amber-300' : 'border-l-transparent hover:bg-slate-50']">
+                     :class="['p-2.5 text-sm cursor-pointer border-l-4', selectedDevice && selectedDevice.instanceId===dev.instanceId ? 'bg-blue-50 border-l-blue-600' : isHighlightedDevice(dev) ? 'bg-blue-50/60 border-l-blue-400' : dev.isProblem ? 'bg-red-50 border-l-red-400' : dev.isGhost ? 'bg-amber-50/60 border-l-amber-300' : 'border-l-transparent hover:bg-slate-50']">
                   <div class="flex items-start justify-between gap-2">
                     <div :class="['font-bold min-w-0 truncate', dev.isGhost ? 'text-slate-500' : 'text-slate-900']">{{ dev.name }}</div>
-                    <span v-if="dev.isProblem" class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 shrink-0">PROBLEM</span>
-                    <span v-else-if="dev.isGhost" class="px-2 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-500 shrink-0">GHOST</span>
-                    <span v-else-if="dev.status && dev.status !== 'OK'" class="px-2 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ dev.status }}</span>
+                    <span v-if="dev.isProblem" class="pc-badge px-2 py-1 text-[10px] font-black bg-red-100 text-red-700 shrink-0">PROBLEM</span>
+                    <span v-else-if="dev.isGhost" class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-500 shrink-0">GHOST</span>
+                    <span v-else-if="dev.status && dev.status !== 'OK'" class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ dev.status }}</span>
                   </div>
                   <div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div>
                   <div class="mt-2 text-[11px] text-slate-500 break-all"><b>Driver:</b> {{ dev.activeDriver || 'N/A' }}</div>
@@ -97,25 +110,27 @@
           </div>
           <div class="xl:col-span-7 min-h-0 overflow-y-auto custom-scrollbar p-4">
             <div v-if="selectedDevice" class="space-y-4">
-              <div class="rounded-2xl border p-4">
+              <div class="pc-identity-header">
+                <button @click="showDeviceOverview" class="pc-identity-back">← Device Overview</button>
                 <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                  <div>
-                    <h3 class="text-xl font-black text-slate-900">{{ selectedDevice.name }}</h3>
-                    <div class="text-xs text-slate-500 mt-2 break-all">{{ selectedDevice.instanceId }} <a v-if="getDeviceHuntInfo(selectedDevice.instanceId)" :href="getDeviceHuntInfo(selectedDevice.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                  <div class="min-w-0">
+                    <div class="pc-eyebrow-dark">Device Identity</div>
+                    <h3 class="pc-identity-title">{{ selectedDevice.name }}</h3>
+                    <div class="pc-identity-subtitle">{{ selectedDevice.instanceId }} <a v-if="getDeviceHuntInfo(selectedDevice.instanceId)" :href="getDeviceHuntInfo(selectedDevice.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-300 hover:text-blue-200 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
                   </div>
-                  <button v-if="getDriverObjectByName(selectedDevice.activeDriver)" @click="openDriverFromDevice(selectedDevice)" class="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-bold">Open Driver Detail</button>
+                  <button v-if="getDriverObjectByName(selectedDevice.activeDriver)" @click="openDriverFromDevice(selectedDevice)" class="pc-btn pc-btn-light">Open Driver Detail</button>
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="rounded-xl border p-3"><div class="label">Class</div><div class="value">{{ selectedDevice.className || 'N/A' }}</div></div>
-                <div class="rounded-xl border p-3"><div class="label">Status</div><div :class="['value', selectedDevice.isProblem ? 'text-red-700' : selectedDevice.isGhost ? 'text-amber-700' : 'text-emerald-700']">{{ selectedDevice.isGhost ? 'GHOST / CM_PROB_PHANTOM' : (selectedDevice.problem || selectedDevice.status || 'OK') }}</div></div>
-                <div class="rounded-xl border p-3"><div class="label">Active / Best Driver</div><div class="value break-all">{{ selectedDevice.activeDriver || 'N/A' }}</div></div>
-                <div class="rounded-xl border p-3"><div class="label">Signer</div><div class="value break-all">{{ selectedDevice.signer || 'N/A' }}</div></div>
-                <div class="rounded-xl border p-3"><div class="label">Version</div><div class="value">{{ selectedDevice.version || 'N/A' }}</div></div>
-                <div class="rounded-xl border p-3"><div class="label">Driver Status</div><div class="value break-all">{{ selectedDevice.activeDriverStatus || 'N/A' }}</div></div>
+                <div class="pc-property-card"><div class="label">Class</div><div class="value">{{ selectedDevice.className || 'N/A' }}</div></div>
+                <div class="pc-property-card"><div class="label">Status</div><div :class="['value', selectedDevice.isProblem ? 'text-red-700' : selectedDevice.isGhost ? 'text-amber-700' : 'text-emerald-700']">{{ selectedDevice.isGhost ? 'GHOST / CM_PROB_PHANTOM' : (selectedDevice.problem || selectedDevice.status || 'OK') }}</div></div>
+                <div class="pc-property-card"><div class="label">Active / Best Driver</div><div class="value break-all">{{ selectedDevice.activeDriver || 'N/A' }}</div></div>
+                <div class="pc-property-card"><div class="label">Signer</div><div class="value break-all">{{ selectedDevice.signer || 'N/A' }}</div></div>
+                <div class="pc-property-card"><div class="label">Version</div><div class="value">{{ selectedDevice.version || 'N/A' }}</div></div>
+                <div class="pc-property-card"><div class="label">Driver Status</div><div class="value break-all">{{ selectedDevice.activeDriverStatus || 'N/A' }}</div></div>
               </div>
               <div v-if="selectedDevice.deviceStatus" class="rounded-2xl border border-slate-200 overflow-hidden">
-                <div class="px-4 py-3 bg-slate-900 text-white flex items-center justify-between gap-3">
+                <div class="pc-section-heading flex items-center justify-between gap-3">
                   <div><h3 class="font-black">Device Status</h3><p class="text-[11px] text-slate-300 mt-1">Windows Configuration Manager / DevNode diagnostics</p></div>
                   <span :class="['px-3 py-1 rounded-full text-xs font-black', selectedDevice.deviceStatus.ProblemCode && Number(selectedDevice.deviceStatus.ProblemCode)!==0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700']">Code {{ selectedDevice.deviceStatus.ProblemCode ?? 0 }}</span>
                 </div>
@@ -128,12 +143,13 @@
                   <div class="rounded-xl bg-slate-50 border p-3 md:col-span-2"><div class="card-label">Configuration Flags</div><div class="mt-2 flex flex-wrap gap-2"><span v-for="flag in (selectedDevice.deviceStatus.ConfigFlags || [])" :key="flag" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-amber-100 text-amber-700">{{ flag }}</span><span v-if="!(selectedDevice.deviceStatus.ConfigFlags || []).length" class="text-slate-400">None</span></div><div class="text-[11px] text-slate-400 mt-2 font-mono">{{ selectedDevice.deviceStatus.ConfigFlagsHex || selectedDevice.deviceStatus.ConfigFlagsRaw || '' }}</div></div>
                 </div>
               </div>
-              <div class="rounded-2xl border p-4">
-                <h3 class="font-black mb-2">Hardware IDs</h3>
+              <div class="pc-section-shell">
+                <div class="pc-section-heading compact"><h3>Hardware IDs</h3></div><div class="pc-section-body">
                 <pre class="bg-slate-100 rounded-xl p-3 text-xs min-h-[120px]">{{ (selectedDevice.hwids || []).join('\n') || 'N/A' }}</pre>
+                </div>
               </div>
-              <div class="rounded-2xl border p-4">
-                <h3 class="font-black mb-2">Matching Drivers</h3>
+              <div class="pc-section-shell">
+                <div class="pc-section-heading compact"><h3>Matching Drivers</h3></div><div class="pc-section-body">
                 <div v-if="selectedDevice.matchingDrivers && selectedDevice.matchingDrivers.length" class="space-y-2">
                   <div v-for="m in selectedDevice.matchingDrivers" :key="m.name + m.status" class="rounded-xl border p-3 text-xs">
                     <div class="font-black">{{ m.name }}</div>
@@ -141,176 +157,252 @@
                   </div>
                 </div>
                 <div v-else class="text-slate-400 text-sm">No matching driver details loaded.</div>
+                </div>
               </div>
             </div>
-            <div v-else class="h-full flex items-center justify-center text-slate-400 font-semibold">Select a device.</div>
+            <div v-else class="space-y-4">
+              <section class="pc-section-shell">
+                <div class="pc-section-heading">
+                  <div><h2>Device Overview</h2><p>Device inventory and attention status for the current machine.</p></div>
+                </div>
+                <div class="pc-section-body grid grid-cols-2 xl:grid-cols-4 gap-3">
+                  <div class="rounded-2xl border bg-slate-50 p-4">
+                    <div class="text-[10px] uppercase tracking-widest font-black text-slate-500">Total Devices</div>
+                    <div class="text-xl font-black mt-2">{{ fullDeviceList.length }}</div>
+                    <div class="text-xs text-slate-500 mt-1">Loaded PnP devices</div>
+                  </div>
+                  <div class="rounded-2xl border border-red-200 bg-red-50 p-4">
+                    <div class="text-[10px] uppercase tracking-widest font-black text-red-500">Problem Devices</div>
+                    <div class="text-xl font-black text-red-700 mt-2">{{ problemDevicesCombined.length }}</div>
+                    <div class="text-xs text-red-600 mt-1">Require investigation</div>
+                  </div>
+                  <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <div class="text-[10px] uppercase tracking-widest font-black text-amber-600">Ghost Devices</div>
+                    <div class="text-xl font-black text-amber-700 mt-2">{{ ghostDevices.length }}</div>
+                    <div class="text-xs text-amber-600 mt-1">CM_PROB_PHANTOM</div>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="text-[10px] uppercase tracking-widest font-black text-slate-500">Disabled Devices</div>
+                    <div class="text-xl font-black text-slate-800 mt-2">{{ disabledDevices.length }}</div>
+                    <div class="text-xs text-slate-500 mt-1">Reported as disabled</div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="pc-section-shell">
+                <div class="pc-section-heading flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div><h2>Devices Requiring Attention</h2><p>Review problem, ghost and disabled devices, then open the matching device detail.</p></div>
+                  <div class="flex flex-wrap gap-2">
+                    <button @click="selectedProblemTab='problem'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='problem' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50']">Problem ({{ problemDevicesCombined.length }})</button>
+                    <button @click="selectedProblemTab='ghost'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='ghost' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50']">Ghost ({{ ghostDevices.length }})</button>
+                    <button @click="selectedProblemTab='disabled'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='disabled' ? 'bg-slate-600 text-white border-slate-500' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50']">Disabled ({{ disabledDevices.length }})</button>
+                  </div>
+                </div>
+                <div class="pc-section-body">
+                <div v-if="selectedProblemTab==='problem'">
+                  <div v-if="problemDevicesCombined.length" class="mt-3 space-y-3">
+                    <div v-for="(pd,idx) in problemDevicesCombined" :key="idx" class="border border-red-200 bg-red-50 rounded-2xl p-4">
+                      <div class="font-black text-slate-900 text-sm">{{ pd.name || pd.description || pd.FriendlyName || 'Unknown Device' }}</div>
+                      <div class="text-xs text-slate-600 mt-2 break-all">{{ pd.pnpId || pd.instanceId || pd.InstanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId)" :href="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                      <div class="mt-3 text-sm font-bold text-red-700 break-all">{{ pd.error || pd.problem || pd.Problem || pd.ConfigManagerErrorCode || 'Device has issue' }}</div>
+                      <button @click="openProblemDevice(pd)" class="mt-3 text-xs font-black text-blue-700 hover:underline">Open Device →</button>
+                    </div>
+                  </div>
+                  <div v-else class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-700 font-bold">目前沒有偵測到 Problem Device。</div>
+                </div>
+
+                <div v-else-if="selectedProblemTab==='ghost'">
+                  <div v-if="ghostDevices.length" class="mt-3 space-y-3">
+                    <div v-for="(gd,idx) in ghostDevices" :key="idx" class="border border-amber-200 bg-amber-50 rounded-2xl p-4">
+                      <div class="flex items-start justify-between gap-2"><div class="font-black text-slate-900 text-sm">{{ gd.FriendlyName || gd.name || gd.description || 'Unknown Ghost Device' }}</div><span class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-500 shrink-0">GHOST</span></div>
+                      <div class="text-xs text-slate-600 mt-2 break-all">{{ gd.InstanceId || gd.pnpId || gd.instanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId)" :href="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
+                      <div class="mt-3 text-sm font-bold text-amber-700 break-all">{{ gd.Problem || gd.ConfigManagerErrorCode || 'CM_PROB_PHANTOM' }}</div>
+                      <button @click="openProblemDevice(gd)" class="mt-3 text-xs font-black text-blue-700 hover:underline">Open Device →</button>
+                    </div>
+                  </div>
+                  <div v-else class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 font-bold">目前沒有偵測到 Ghost Device。</div>
+                </div>
+
+                <div v-else>
+                  <div v-if="disabledDevices.length" class="mt-3 space-y-3">
+                    <div v-for="dev in disabledDevices" :key="dev.instanceId" class="border border-slate-200 bg-slate-50 rounded-2xl p-4">
+                      <div class="flex items-start justify-between gap-2"><div class="font-black text-slate-900 text-sm">{{ dev.name || 'Unknown Device' }}</div><span class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-200 text-slate-700 shrink-0">DISABLED</span></div>
+                      <div class="text-xs text-slate-600 mt-2 break-all">{{ dev.instanceId || 'N/A' }}</div>
+                      <div class="mt-3 text-sm font-bold text-slate-700 break-all">{{ dev.problem || dev.status || dev.deviceStatus?.ProblemName || 'Disabled' }}</div>
+                      <button @click="openProblemDevice(dev)" class="mt-3 text-xs font-black text-blue-700 hover:underline">Open Device →</button>
+                    </div>
+                  </div>
+                  <div v-else class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 font-bold">目前沒有偵測到 Disabled Device。</div>
+                </div>
+                </div>
+              </section>
+
+              <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-slate-500 text-sm font-semibold">Select a device from the left pane to inspect its Device Status, Hardware IDs and Matching Drivers.</div>
+            </div>
           </div>
         </div>
       </div>
 
       <div v-else-if="selectedPanel==='configuration'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
-          <div>
-            <h2 class="text-lg font-black">Platform Configuration</h2>
-            <p class="text-xs text-slate-500 mt-1">Hardware inventory generated by Dowsing. This page is designed to answer: what exact platform configuration is this machine?</p>
-          </div>
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs min-w-[520px]">
-            <div class="rounded-xl border bg-slate-50 p-3"><div class="card-label">Model</div><div class="font-bold mt-1 break-all">{{ platformConfigurationHeadline.model }}</div></div>
-            <div class="rounded-xl border bg-slate-50 p-3"><div class="card-label">SKU</div><div class="font-bold mt-1 break-all">{{ platformConfigurationHeadline.sku }}</div></div>
-            <div class="rounded-xl border bg-slate-50 p-3"><div class="card-label">BIOS</div><div class="font-bold mt-1 break-all">{{ platformConfigurationHeadline.bios }}</div></div>
-            <div class="rounded-xl border bg-slate-50 p-3"><div class="card-label">Generated</div><div class="font-bold mt-1 break-all">{{ platformConfigurationHeadline.generatedAt }}</div></div>
-          </div>
+        <div>
+          <h2 class="text-lg font-black">Hardware List</h2>
+          <p class="text-xs text-slate-500 mt-1">A focused hardware inventory of the functional components present on this machine.</p>
         </div>
 
         <div v-if="!Object.keys(hardwareInventory).length" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-bold">
           未載入 _HardwareInventory.json。請使用新版 Dowsing 收集 logs 後再拖入 Precog。
         </div>
 
-        <div v-else class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div v-for="section in platformConfigurationSections" :key="section.title" class="rounded-2xl border overflow-hidden bg-white">
-            <div class="px-4 py-3 bg-slate-50 border-b flex items-center justify-between gap-3">
-              <h3 class="font-black text-sm text-slate-900">{{ section.title }}</h3>
-              <span class="px-2 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-600">{{ section.badge }}</span>
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+          <div v-for="section in platformConfigurationSections" :key="section.title"
+               class="rounded-2xl border overflow-hidden bg-white min-w-0">
+            <div class="pc-section-heading compact flex items-center justify-between gap-3">
+              <h3 class="font-black text-sm text-white truncate">{{ section.title }}</h3>
+              <span class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ section.badge }}</span>
             </div>
-            <div v-if="section.rows.length" class="divide-y divide-slate-100 max-h-[360px] overflow-y-auto custom-scrollbar">
-              <div v-for="(row, idx) in section.rows" :key="section.title + idx + row.name" class="p-3">
-                <div class="font-bold text-sm text-slate-900 break-all">{{ row.name }}</div>
-                <div v-if="row.detail" class="text-xs text-slate-600 mt-1 break-all">{{ row.detail }}</div>
+            <div v-if="section.rows.length" class="divide-y divide-slate-100 max-h-[280px] overflow-y-auto custom-scrollbar">
+              <div v-for="(row, idx) in section.rows" :key="section.title + idx + row.name" class="px-3 py-2.5">
+                <div class="font-bold text-sm text-slate-900 break-words">{{ row.name }}</div>
+                <div v-if="row.detail" class="text-xs text-slate-600 mt-1 break-words">{{ row.detail }}</div>
                 <div v-if="row.meta" class="text-[11px] text-slate-400 mt-1 break-all">{{ row.meta }}</div>
               </div>
             </div>
-            <div v-else class="p-4 text-sm text-slate-400 font-semibold">No data.</div>
+            <div v-else class="px-3 py-4 text-sm text-slate-400 font-semibold">No data.</div>
           </div>
         </div>
       </div>
 
       <div v-else-if="selectedPanel==='platform'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-lg font-black">Platform Health</h2>
-            <p class="text-xs text-slate-500 mt-1">A compact view for power, display, Type-C, vendor-related devices, and raw report availability.</p>
+        <section class="pc-section-shell">
+          <div class="pc-section-heading flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+            <div><h2>Runtime Health Overview</h2><p>Runtime health for sleep, wake, power requests, and power reports.</p></div>
+            <div class="text-xs font-bold text-slate-300">Health data only — hardware and device inventory are shown on their dedicated pages.</div>
           </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <div v-for="card in platformHealthCards" :key="card.title" class="rounded-2xl border p-4">
-            <div class="flex items-center justify-between gap-2">
-              <div class="font-black text-sm">{{ card.title }}</div>
-              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', card.status === 'OK' || card.status === 'Loaded' ? 'bg-emerald-100 text-emerald-700' : card.status === 'Warn' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600']">{{ card.status }}</span>
-            </div>
-            <div class="mt-2 text-xs text-slate-500 break-all">{{ card.detail }}</div>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-2">PowerCfg /a</h3>
-            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[280px] overflow-auto custom-scrollbar">{{ rawPowerCfgA || 'Not loaded' }}</pre>
-          </div>
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-2">Power Requests</h3>
-            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[280px] overflow-auto custom-scrollbar">{{ rawPowerCfgRequests || 'Not loaded' }}</pre>
-          </div>
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-2">Last Wake</h3>
-            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[180px] overflow-auto custom-scrollbar">{{ rawPowerCfgLastWake || 'Not loaded' }}</pre>
-          </div>
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-2">Wake Armed</h3>
-            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[180px] overflow-auto custom-scrollbar">{{ rawPowerCfgWakeArmed || 'Not loaded' }}</pre>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-3">Display / Audio / Camera</h3>
-            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
-              <div v-for="row in displayAudioCameraRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
-                <div class="font-bold">{{ row.FriendlyName || row.Name || 'Unknown' }}</div>
-                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+          <div class="pc-section-body grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div v-for="card in platformHealthCards" :key="card.title" class="rounded-2xl border p-4" :class="card.cardClass">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase tracking-widest font-black" :class="card.labelClass">{{ card.title }}</div>
+                  <div class="text-sm font-black text-slate-900 mt-2 break-words">{{ card.value }}</div>
+                </div>
+                <span :class="['px-2 py-1 rounded-full text-[10px] font-black whitespace-nowrap', healthStatusClass(card.status)]">{{ card.status }}</span>
               </div>
+              <div class="mt-2 text-xs text-slate-500 break-all">{{ card.detail }}</div>
             </div>
           </div>
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-3">USB / Type-C / UCSI</h3>
-            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
-              <div v-for="row in usbTypecRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
-                <div class="font-bold">{{ row.FriendlyName || 'Unknown' }}</div>
-                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 class="pc-subsection-title">Supported Sleep States</h3>
+                <p class="text-xs text-slate-500 mt-1">Power capabilities reported by <code>powercfg /a</code>.</p>
               </div>
+              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', healthStatusClass(rawPowerCfgA ? 'Available' : 'Not Available')]">{{ rawPowerCfgA ? 'Available' : 'Not Available' }}</span>
             </div>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[300px] overflow-auto custom-scrollbar whitespace-pre-wrap">{{ rawPowerCfgA || 'Not available in the loaded source.' }}</pre>
           </div>
-          <div class="rounded-2xl border p-4">
-            <h3 class="font-black mb-3">Vendor Related Devices</h3>
-            <div class="space-y-2 max-h-[360px] overflow-auto custom-scrollbar">
-              <div v-for="row in vendorRows" :key="row.InstanceId" class="rounded-xl bg-slate-50 border p-3 text-xs">
-                <div class="font-bold">{{ row.FriendlyName || 'Unknown' }}</div>
-                <div class="text-slate-500 mt-1">{{ row.Class || 'N/A' }} | {{ row.Status || 'N/A' }}</div>
+
+          <div class="rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 class="pc-subsection-title">Active Power Requests</h3>
+                <p class="text-xs text-slate-500 mt-1">Processes or drivers currently preventing sleep or display idle.</p>
               </div>
+              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', healthStatusClass(powerRequestStatus)]">{{ powerRequestStatus }}</span>
+            </div>
+            <pre class="bg-slate-100 rounded-xl p-3 text-xs max-h-[300px] overflow-auto custom-scrollbar whitespace-pre-wrap">{{ rawPowerCfgRequests || 'Not available in the loaded source.' }}</pre>
+          </div>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 class="pc-subsection-title">Wake Information</h3>
+              <p class="text-xs text-slate-500 mt-1">The latest wake source and devices currently armed to wake the system.</p>
+            </div>
+            <span :class="['px-2 py-1 rounded-full text-[10px] font-black', healthStatusClass((rawPowerCfgLastWake || rawPowerCfgWakeArmed) ? 'Available' : 'Not Available')]">{{ (rawPowerCfgLastWake || rawPowerCfgWakeArmed) ? 'Available' : 'Not Available' }}</span>
+          </div>
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div class="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Last Wake Source</div>
+              <pre class="text-xs max-h-[220px] overflow-auto custom-scrollbar whitespace-pre-wrap">{{ rawPowerCfgLastWake || 'Not available in the loaded source.' }}</pre>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div class="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Wake Armed Devices</div>
+              <pre class="text-xs max-h-[220px] overflow-auto custom-scrollbar whitespace-pre-wrap">{{ rawPowerCfgWakeArmed || 'Not available in the loaded source.' }}</pre>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="mb-3">
+            <h3 class="pc-subsection-title">Power Reports</h3>
+            <p class="text-xs text-slate-500 mt-1">Availability of collected runtime power-analysis reports.</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4">
+              <div>
+                <div class="font-black text-sm text-slate-900">SleepStudy</div>
+                <div class="text-xs text-slate-500 mt-1">Modern Standby session report</div>
+              </div>
+              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', healthStatusClass(rawSleepStudyText ? 'Available' : 'Not Available')]">{{ rawSleepStudyText ? 'Available' : 'Not Available' }}</span>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4">
+              <div>
+                <div class="font-black text-sm text-slate-900">Energy Report</div>
+                <div class="text-xs text-slate-500 mt-1">Power efficiency diagnostics</div>
+              </div>
+              <span :class="['px-2 py-1 rounded-full text-[10px] font-black', healthStatusClass(rawEnergyReportText ? 'Available' : 'Not Available')]">{{ rawEnergyReportText ? 'Available' : 'Not Available' }}</span>
+            </div>
+          </div>
+        </section>
       </div>
 
-
       <div v-else-if="selectedPanel==='apps'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div class="px-5 py-4 border-b bg-white shrink-0 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div>
+        <div class="px-5 py-3 border-b bg-white shrink-0 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+          <div class="min-w-0">
             <h2 class="text-lg font-black text-slate-900">Apps</h2>
-            <p class="text-xs text-slate-500 mt-1">Merged view from Win32 apps, Appx packages, provisioned apps, and startup apps.</p>
+            <p class="text-xs text-slate-500 mt-1">Installed software inventory and startup behavior from merged Win32, Appx, provisioned, and startup data.</p>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="text-xs font-bold text-slate-500">Showing: {{ showMicrosoftApps ? 'Microsoft Apps' : 'Non-Microsoft Apps' }}</div>
+          <div class="flex flex-wrap items-center justify-end gap-3 shrink-0">
+            <div class="text-xs font-bold text-slate-500 whitespace-nowrap">Showing: {{ showMicrosoftApps ? 'Microsoft Apps' : 'OEM / Non-Microsoft Apps' }}</div>
             <button @click="showMicrosoftApps = !showMicrosoftApps" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-700">
-              {{ showMicrosoftApps ? 'Show Non-Microsoft' : 'Show Microsoft' }}
+              {{ showMicrosoftApps ? 'Show OEM Apps' : 'Show Microsoft Apps' }}
             </button>
           </div>
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-          <section class="rounded-2xl border border-slate-200 overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b flex items-center justify-between">
-              <div>
-                <h3 class="font-black text-slate-900">Installed / Provisioned Apps</h3>
-                <p class="text-xs text-slate-500 mt-1">Deduplicated from _InstalledApps_Appx, _InstalledApps_Win32 and _ProvisionedApps.</p>
-              </div>
-              <span class="px-3 py-1 rounded-full bg-slate-900 text-white text-xs font-black">{{ combinedInstalledApps.length }} Apps</span>
+
+          <section class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 px-1">
+            <div class="min-w-0">
+              <h3 class="pc-subsection-title">Apps Overview</h3>
+              <p class="text-xs text-slate-500 mt-1">Quick software inventory summary from the currently loaded machine.</p>
             </div>
-            <div class="overflow-auto custom-scrollbar">
-              <table class="min-w-full text-sm">
-                <thead class="bg-white sticky top-0 z-10">
-                  <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b">
-                    <th class="px-4 py-3">Name</th>
-                    <th class="px-4 py-3">Version</th>
-                    <th class="px-4 py-3">Publisher</th>
-                    <th class="px-4 py-3">Source</th>
-                    <th class="px-4 py-3">Package</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="app in combinedInstalledApps" :key="app.name + app.source" class="border-b last:border-b-0 hover:bg-slate-50">
-                    <td class="px-4 py-3 font-bold text-slate-900">{{ app.name }}</td>
-                    <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ app.version || 'N/A' }}</td>
-                    <td class="px-4 py-3 text-slate-600">{{ app.publisher || 'N/A' }}</td>
-                    <td class="px-4 py-3"><span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-black">{{ app.source }}</span></td>
-                    <td class="px-4 py-3 text-xs text-slate-500 break-all max-w-[520px]">{{ app.packageName || app.installLocation || '' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div v-if="!combinedInstalledApps.length" class="p-6 text-center text-slate-500 font-semibold">No app rows matched current filter.</div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 xl:w-[620px] shrink-0" aria-label="Apps overview summary">
+              <div v-for="card in appsOverviewCards" :key="card.title" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 min-w-0">
+                <div class="text-[10px] uppercase tracking-wide font-black text-slate-400 truncate">{{ card.title.replace(' Applications', '') }}</div>
+                <div class="text-lg leading-tight font-black text-slate-900 mt-0.5">{{ card.count }}</div>
+                <div class="text-[10px] text-slate-400 mt-0.5 truncate">{{ card.subtitle }}</div>
+              </div>
             </div>
           </section>
 
-          <section class="rounded-2xl border border-slate-200 overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b flex items-center justify-between">
+          <section class="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div class="pc-section-heading flex items-center justify-between">
               <div>
-                <h3 class="font-black text-slate-900">Startup Apps</h3>
-                <p class="text-xs text-slate-500 mt-1">From _StartupApps.csv</p>
+                <h3 class="font-black">Startup Apps</h3>
+                <p class="text-xs text-slate-500 mt-1">Applications configured to participate in system startup.</p>
               </div>
-              <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-black">{{ filteredStartupApps.length }} Items</span>
+              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ filteredStartupApps.length }} Items</span>
             </div>
             <div class="overflow-auto custom-scrollbar">
               <table class="min-w-full text-sm">
                 <thead class="bg-white sticky top-0 z-10">
                   <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b">
-                    <th class="px-4 py-3">Name</th>
+                    <th class="px-4 py-3">Application</th>
                     <th class="px-4 py-3">Command</th>
                     <th class="px-4 py-3">Location</th>
                     <th class="px-4 py-3">User</th>
@@ -318,7 +410,10 @@
                 </thead>
                 <tbody>
                   <tr v-for="app in filteredStartupApps" :key="app.Name + app.Location" class="border-b last:border-b-0 hover:bg-slate-50">
-                    <td class="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">{{ app.Name || 'Unknown' }}</td>
+                    <td class="px-4 py-3">
+                      <div class="font-bold text-slate-900 whitespace-nowrap">{{ app.Name || 'Unknown' }}</div>
+                      <div class="text-[11px] font-bold text-slate-400 mt-1">Startup Application</div>
+                    </td>
                     <td class="px-4 py-3 text-xs text-slate-600 break-all max-w-[760px]">{{ app.Command || '' }}</td>
                     <td class="px-4 py-3 text-xs text-slate-500 break-all">{{ app.Location || '' }}</td>
                     <td class="px-4 py-3 text-xs text-slate-500">{{ app.User || '' }}</td>
@@ -328,26 +423,76 @@
               <div v-if="!filteredStartupApps.length" class="p-6 text-center text-slate-500 font-semibold">No startup app rows matched current filter.</div>
             </div>
           </section>
+
+          <section class="rounded-2xl border border-slate-200 overflow-hidden">
+            <div class="pc-section-heading flex items-center justify-between">
+              <div>
+                <h3 class="font-black">Installed Applications</h3>
+                <p class="text-xs text-slate-500 mt-1">Merged and deduplicated from Win32, Appx, and provisioned application inventories.</p>
+              </div>
+              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ combinedInstalledApps.length }} Apps</span>
+            </div>
+            <div class="overflow-auto custom-scrollbar">
+              <table class="min-w-full text-sm">
+                <thead class="bg-white sticky top-0 z-10">
+                  <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b">
+                    <th class="px-4 py-3">Application</th>
+                    <th class="px-4 py-3">Version</th>
+                    <th class="px-4 py-3">Publisher</th>
+                    <th class="px-4 py-3">Install Source</th>
+                    <th class="px-4 py-3">Package / Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="app in combinedInstalledApps" :key="app.name + app.source" class="border-b last:border-b-0 hover:bg-slate-50">
+                    <td class="px-4 py-3">
+                      <div class="font-bold text-slate-900">{{ app.name }}</div>
+                      <div class="text-[11px] font-bold text-slate-400 mt-1">Application Identity</div>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ app.version || 'N/A' }}</td>
+                    <td class="px-4 py-3 text-slate-600">{{ app.publisher || 'N/A' }}</td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-black">{{ app.source }}</span></td>
+                    <td class="px-4 py-3 text-xs text-slate-500 break-all max-w-[520px]">{{ app.packageName || app.installLocation || 'N/A' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="!combinedInstalledApps.length" class="p-6 text-center text-slate-500 font-semibold">No installed app rows matched current filter.</div>
+            </div>
+          </section>
         </div>
       </div>
 
-
       <div v-else-if="selectedPanel==='systemLogs'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div class="px-5 py-4 border-b bg-white shrink-0">
-          <h2 class="text-lg font-black text-slate-900">System Logs</h2>
-          <p class="text-xs text-slate-500 mt-1">Additional Dowsing T07 logs arranged for quick review.</p>
+        <div class="px-5 py-3 border-b bg-white shrink-0 flex items-center justify-between gap-5">
+          <div class="min-w-0">
+            <h2 class="text-lg font-black text-slate-900">System Logs</h2>
+            <p class="text-xs text-slate-500 mt-1">Operational evidence from updates, services, scheduled tasks, power, network and system records.</p>
+          </div>
+          <div class="hidden xl:flex items-stretch gap-1.5 shrink-0" aria-label="Log inventory summary">
+            <div v-for="card in operationsLogCards" :key="card.title" class="min-w-[86px] max-w-[118px] rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+              <div class="text-[9px] font-black uppercase tracking-wide text-slate-500 truncate" :title="card.title">{{ card.title }}</div>
+              <div class="flex items-baseline gap-1 mt-0.5">
+                <span class="text-sm font-black text-slate-900">{{ card.count }}</span>
+                <span class="text-[9px] font-bold text-slate-400">{{ card.kind === 'table' ? 'Rows' : 'Lines' }}</span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div v-for="card in operationsLogCards" :key="card.title" class="rounded-2xl border border-slate-200 p-4 bg-slate-50">
-              <div class="text-xs font-bold text-slate-500">{{ card.title }}</div>
-              <div class="text-2xl font-black text-slate-900 mt-2">{{ card.count }}</div>
-              <div class="text-[11px] font-bold text-slate-400 mt-1">{{ card.kind === 'table' ? 'Rows' : 'Lines' }}</div>
+          <div class="xl:hidden rounded-2xl border border-slate-200 bg-slate-50 p-2">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div v-for="card in operationsLogCards" :key="card.title" class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <div class="text-[10px] font-black uppercase tracking-wide text-slate-500 truncate" :title="card.title">{{ card.title }}</div>
+                <div class="flex items-baseline gap-1 mt-1">
+                  <span class="text-base font-black text-slate-900">{{ card.count }}</span>
+                  <span class="text-[9px] font-bold text-slate-400">{{ card.kind === 'table' ? 'Rows' : 'Lines' }}</span>
+                </div>
+              </div>
             </div>
           </div>
 
           <section class="rounded-2xl border overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">Installed Updates</h3></div>
+            <div class="pc-section-heading flex items-center justify-between gap-3"><div><h3 class="font-black">Installed Updates</h3><p class="text-[11px] text-slate-500 mt-0.5">Update history collected from the current system.</p></div><span class="pc-badge px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-black">{{ installedUpdates.length }} Rows</span></div>
             <div class="overflow-auto custom-scrollbar max-h-[360px]">
               <table class="min-w-full text-sm">
                 <thead class="bg-white sticky top-0"><tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b"><th class="px-4 py-3">HotFixID</th><th class="px-4 py-3">Description</th><th class="px-4 py-3">Installed By</th><th class="px-4 py-3">Installed On</th></tr></thead>
@@ -357,7 +502,7 @@
           </section>
 
           <section class="rounded-2xl border overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">Services</h3></div>
+            <div class="pc-section-heading flex items-center justify-between gap-3"><div><h3 class="font-black">Services</h3><p class="text-[11px] text-slate-500 mt-0.5">Service state and startup configuration.</p></div><span class="pc-badge px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-black">{{ servicesRows.length }} Rows</span></div>
             <div class="overflow-auto custom-scrollbar max-h-[420px]">
               <table class="min-w-full text-sm">
                 <thead class="bg-white sticky top-0"><tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b"><th class="px-4 py-3">Name</th><th class="px-4 py-3">Display Name</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Start Type</th></tr></thead>
@@ -367,7 +512,7 @@
           </section>
 
           <section class="rounded-2xl border overflow-hidden">
-            <div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">Scheduled Tasks</h3></div>
+            <div class="pc-section-heading flex items-center justify-between gap-3"><div><h3 class="font-black">Scheduled Tasks</h3><p class="text-[11px] text-slate-500 mt-0.5">Task state, execution result and next-run evidence.</p></div><span class="pc-badge px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-black">{{ scheduledTasksRows.length }} Rows</span></div>
             <div class="overflow-auto custom-scrollbar max-h-[420px]">
               <table class="min-w-full text-sm">
                 <thead class="bg-white sticky top-0"><tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b"><th class="px-4 py-3">Task</th><th class="px-4 py-3">State</th><th class="px-4 py-3">Last Result</th><th class="px-4 py-3">Next Run</th><th class="px-4 py-3">Actions</th></tr></thead>
@@ -377,10 +522,10 @@
           </section>
 
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <section class="rounded-2xl border overflow-hidden"><div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">Power Plan</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawPowerPlanText || '未載入 _PowerPlan.txt' }}</pre></section>
-            <section class="rounded-2xl border overflow-hidden"><div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">IPConfig</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawIPConfigText || '未載入 _IPConfig.txt' }}</pre></section>
-            <section class="rounded-2xl border overflow-hidden"><div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">PnP Interfaces</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawPnpInterfacesText || '未載入 _PnpInterfaces.txt' }}</pre></section>
-            <section class="rounded-2xl border overflow-hidden"><div class="px-4 py-3 bg-slate-50 border-b"><h3 class="font-black">Default Apps</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawDefaultAppsText || '未載入 _DefaultAppAssociations.xml' }}</pre></section>
+            <section class="rounded-2xl border overflow-hidden"><div class="pc-section-heading compact"><h3>Power Plan</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawPowerPlanText || '未載入 _PowerPlan.txt' }}</pre></section>
+            <section class="rounded-2xl border overflow-hidden"><div class="pc-section-heading compact"><h3>IPConfig</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawIPConfigText || '未載入 _IPConfig.txt' }}</pre></section>
+            <section class="rounded-2xl border overflow-hidden"><div class="pc-section-heading compact"><h3>PnP Interfaces</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawPnpInterfacesText || '未載入 _PnpInterfaces.txt' }}</pre></section>
+            <section class="rounded-2xl border overflow-hidden"><div class="pc-section-heading compact"><h3>Default Apps</h3></div><pre class="p-4 max-h-[420px] overflow-auto custom-scrollbar text-xs bg-white">{{ rawDefaultAppsText || '未載入 _DefaultAppAssociations.xml' }}</pre></section>
           </div>
         </div>
       </div>
@@ -412,7 +557,7 @@
             <div v-if="Object.keys(collectionStatus).length" class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
               <div v-for="(value,key) in collectionStatus" :key="key" class="rounded-2xl border border-slate-200 bg-white p-4 min-h-[74px] flex items-center justify-between gap-4 shadow-sm">
                 <div class="font-semibold text-slate-700 break-words min-w-0">{{ key }}</div>
-                <span :class="collectionBadgeClass(value)" class="px-3 py-1 rounded-full text-xs font-black shrink-0">{{ value }}</span>
+                <span :class="collectionBadgeClass(value)" class="pc-badge px-3 py-1 text-xs font-black shrink-0">{{ value }}</span>
               </div>
             </div>
             <div v-else class="h-full flex items-center justify-center text-slate-500 font-semibold">未載入 _CollectionStatus.txt</div>
@@ -421,127 +566,80 @@
       </div>
 
 
-      <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden grid grid-cols-1 xl:grid-cols-[260px_1fr]">
-        <aside class="border-r bg-slate-50/70 min-h-0 overflow-y-auto custom-scrollbar p-4 hidden xl:block">
-          <div class="system-side-title mb-2">System Info</div>
-          <div class="space-y-1">
-            <button @click="scrollSystemSection('overview')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='overview' ? 'system-side-active' : '']">Overview</button>
-            <button @click="scrollSystemSection('snapshot')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='snapshot' ? 'system-side-active' : '']">System Snapshot</button>
-            <button @click="scrollSystemSection('hardware')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='hardware' ? 'system-side-active' : '']">Hardware Summary</button>
-            <button @click="scrollSystemSection('devices')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='devices' ? 'system-side-active' : '']">Problem Devices</button>
-            <button @click="scrollSystemSection('raw')" :class="['w-full text-left system-side-item rounded-xl', activeSystemSection==='raw' ? 'system-side-active' : '']">Raw System Data</button>
-          </div>
-          <div class="mt-6">
-            <div class="system-side-title">Related Pages</div>
-            <button @click="selectedPanel='configuration'" class="w-full text-left system-side-item rounded-xl">System Configuration ↗</button>
-            <button @click="selectedPanel='apps'" class="w-full text-left system-side-item rounded-xl">Apps ↗</button>
-            <button @click="selectedPanel='systemLogs'" class="w-full text-left system-side-item rounded-xl">System Logs ↗</button>
-            <button @click="selectedOem=null; selectedPanel='overview'" class="w-full text-left system-side-item rounded-xl">Driver Status ↗</button>
-            <button @click="selectedPanel='deviceManager'" class="w-full text-left system-side-item rounded-xl">Device Manager ↗</button>
-          </div>
-          <div class="mt-6 rounded-2xl border bg-white p-3">
-            <div class="text-xs font-black text-slate-600 mb-2">Collection Information</div>
-            <div class="text-[10px] uppercase tracking-widest text-slate-400">Generated Time</div>
-            <div class="text-xs font-bold mt-1 break-all">{{ systemInfoGeneratedTime }}</div>
-          </div>
-        </aside>
-
-        <main class="min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-          <section id="system-section-overview" class="rounded-2xl border p-4 bg-white scroll-mt-4">
-            <div class="flex items-center justify-between mb-3 gap-3">
-              <div>
-                <h2 class="text-lg font-black text-slate-900">System Overview</h2>
-                <p class="text-xs text-slate-500 mt-1">High-level machine, driver, device and collection status.</p>
+      <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <main class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+          <section id="system-section-overview" class="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_330px] gap-4 scroll-mt-4">
+            <div class="pc-section-shell">
+              <div class="pc-section-heading"><div><h2>Platform Overview</h2><p>High-level machine, device, health and collection status.</p></div></div>
+              <div class="pc-section-body grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="system-overview-card red">
+                  <div class="text-xs font-bold text-slate-500">Problem Device</div>
+                  <div class="text-xl font-black text-red-600 mt-1">{{ problemDevicesCombined.length }}</div>
+                  <div class="text-[11px] font-bold mt-1" :class="problemDevicesCombined.length ? 'text-red-600' : 'text-emerald-700'">{{ problemDevicesCombined.length ? 'Requires attention' : 'No problem detected' }}</div>
+                </div>
+                <div class="system-overview-card amber">
+                  <div class="text-xs font-bold text-slate-500">Ghost Device</div>
+                  <div class="text-xl font-black text-amber-600 mt-1">{{ ghostDevices.length }}</div>
+                  <div class="text-[11px] font-bold text-amber-600 mt-1">CM_PROB_PHANTOM</div>
+                </div>
+                <div class="system-overview-card green">
+                  <div class="text-xs font-bold text-slate-500">System Health</div>
+                  <div class="text-xl font-black text-slate-900 mt-1">{{ systemHealthLoadedCount }} / 5</div>
+                  <div class="text-[11px] font-bold text-slate-500 mt-1">Power reports loaded</div>
+                </div>
+                <div class="system-overview-card purple">
+                  <div class="text-xs font-bold text-slate-500">Log Collection</div>
+                  <div class="text-xl font-black text-slate-900 mt-1">{{ collectionOkCount }} / {{ Object.keys(collectionStatus).length }}</div>
+                  <div class="text-[11px] font-bold mt-1" :class="collectionMissingCount ? 'text-amber-700' : 'text-emerald-700'">{{ collectionMissingCount ? collectionMissingCount + ' missing' : 'Completed' }}</div>
+                </div>
               </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-5 gap-3">
-              <div class="system-overview-card red">
-                <div class="text-xs font-bold text-slate-500">Problem Device</div>
-                <div class="text-2xl font-black text-red-600 mt-2">{{ problemDevicesCombined.length }}</div>
-                <div class="text-xs font-bold text-emerald-700 mt-2" v-if="!problemDevicesCombined.length">No problem detected</div>
-                <div class="text-xs font-bold text-red-600 mt-2" v-else>Requires attention</div>
+            <div class="pc-section-shell">
+              <div class="pc-section-heading"><div><h2>Driver Summary</h2><p>Driver inventory and binding status.</p></div></div>
+              <div class="pc-section-body">
+              <div class="grid grid-cols-2 gap-2">
+                <div class="summary-box"><div class="text-[10px] text-slate-500">Drivers</div><div class="text-base font-black mt-1">{{ summaryCards.totalDrivers }}</div></div>
+                <div class="summary-box green"><div class="text-[10px] text-emerald-700">Installed</div><div class="text-base font-black mt-1 text-emerald-700">{{ summaryCards.installed }}</div></div>
+                <div class="summary-box amber"><div class="text-[10px] text-amber-700">No Matched</div><div class="text-base font-black mt-1 text-amber-700">{{ summaryCards.storeOnly }}</div></div>
+                <div class="summary-box red"><div class="text-[10px] text-red-700">Problem</div><div class="text-base font-black mt-1 text-red-700">{{ summaryCards.problem }}</div></div>
               </div>
-              <div class="system-overview-card amber">
-                <div class="text-xs font-bold text-slate-500">Ghost Device</div>
-                <div class="text-2xl font-black text-amber-600 mt-2">{{ ghostDevices.length }}</div>
-                <div class="text-xs font-bold text-amber-600 mt-2">CM_PROB_PHANTOM</div>
-              </div>
-              <div class="system-overview-card blue">
-                <div class="text-xs font-bold text-slate-500">Drivers</div>
-                <div class="mt-2 space-y-1 text-xs">
-                  <div class="flex justify-between"><span>Total</span><b>{{ summaryCards.totalDrivers }}</b></div>
-                  <div class="flex justify-between"><span>Installed</span><b class="text-emerald-700">{{ summaryCards.installed }}</b></div>
-                  <div class="flex justify-between"><span>No Match</span><b class="text-amber-700">{{ summaryCards.storeOnly }}</b></div>
-                  <div class="flex justify-between"><span>Problem</span><b class="text-red-700">{{ summaryCards.problem }}</b></div>
-                </div>
-              </div>
-              <div class="system-overview-card green">
-                <div class="text-xs font-bold text-slate-500">System Health</div>
-                <div class="mt-2 space-y-1 text-xs">
-                  <div class="flex justify-between"><span>Power Reports</span><b>{{ systemHealthLoadedCount }} / 5</b></div>
-                  <div class="flex justify-between"><span>Reliability</span><b>{{ rawEnergyReportText ? 'Loaded' : 'N/A' }}</b></div>
-                  <div class="flex justify-between"><span>Status</span><b class="text-emerald-700">{{ problemDevicesCombined.length ? 'Review' : 'Good' }}</b></div>
-                </div>
-              </div>
-              <div class="system-overview-card purple">
-                <div class="text-xs font-bold text-slate-500">Log Collection</div>
-                <div class="mt-2 space-y-1 text-xs">
-                  <div class="flex justify-between"><span>Collected</span><b>{{ collectionOkCount }} / {{ Object.keys(collectionStatus).length }}</b></div>
-                  <div class="flex justify-between"><span>Missing</span><b>{{ collectionMissingCount }}</b></div>
-                  <div class="flex justify-between"><span>Status</span><b class="text-emerald-700">{{ collectionMissingCount ? 'Partial' : 'Completed' }}</b></div>
-                </div>
+              <button @click="selectedOem = null; selectedPanel='overview'" class="mt-3 text-xs font-bold text-blue-600 hover:underline">View Driver Details →</button>
               </div>
             </div>
           </section>
 
-          <section id="system-section-snapshot" class="rounded-2xl border p-4 bg-white scroll-mt-4">
-            <h2 class="text-lg font-black mb-3">System Snapshot</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Computer Name</div><div class="mt-1 font-bold break-all">{{ systemSummary.ComputerName || systemSummary.CSName || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Manufacturer</div><div class="mt-1 font-bold break-all">{{ systemSummary.Manufacturer || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Model</div><div class="mt-1 font-bold break-all">{{ systemHeadline.model || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">SKU / System SKU</div><div class="mt-1 font-bold break-all">{{ systemHeadline.sku || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">BIOS Version</div><div class="mt-1 font-bold break-all">{{ systemHeadline.bios || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">BIOS Release Date</div><div class="mt-1 font-bold break-all">{{ systemSummary.BIOSReleaseDate || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Build / Release</div><div class="mt-1 font-bold break-all">{{ systemHeadline.build || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Secure Boot</div><div :class="['mt-1 font-bold break-all', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">OS Name</div><div class="mt-1 font-bold break-all">{{ systemHeadline.os || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">OS Version</div><div class="mt-1 font-bold break-all">{{ systemSummary.OSVersion || winRegParsed.DisplayVersion || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">OS Build</div><div class="mt-1 font-bold break-all">{{ systemSummary.OSBuild || winRegParsed.CurrentBuild || 'N/A' }}</div></div>
-              <div class="rounded-xl bg-slate-50 border p-3"><div class="card-label">Memory</div><div class="mt-1 font-bold break-all">{{ systemSummary.TotalPhysicalMemoryGB ? systemSummary.TotalPhysicalMemoryGB + ' GB' : 'N/A' }}</div></div>
-            </div>
+          <section id="system-section-snapshot" class="pc-section-shell scroll-mt-4">
+            <div class="pc-section-heading"><div><h2>System Snapshot</h2><p>Core platform identity and decoded Windows build information.</p></div></div>
+            <div class="pc-section-body"><div class="snapshot-table">
+              <div class="snapshot-row"><div class="snapshot-key">Computer Name</div><div class="snapshot-value">{{ systemSummary.ComputerName || systemSummary.CSName || 'N/A' }}</div><div class="snapshot-key">Manufacturer</div><div class="snapshot-value">{{ systemSummary.Manufacturer || 'N/A' }}</div></div>
+              <div class="snapshot-row"><div class="snapshot-key">Model</div><div class="snapshot-value">{{ systemHeadline.model || 'N/A' }}</div><div class="snapshot-key">SKU / System SKU</div><div class="snapshot-value">{{ systemHeadline.sku || 'N/A' }}</div></div>
+              <div class="snapshot-row"><div class="snapshot-key">BIOS Version</div><div class="snapshot-value">{{ systemHeadline.bios || 'N/A' }}</div><div class="snapshot-key">BIOS Release Date</div><div class="snapshot-value">{{ formatBiosReleaseDate(systemSummary.BIOSReleaseDate) }}</div></div>
+              <div class="snapshot-row"><div class="snapshot-key">Windows Release</div><div class="snapshot-value">{{ windowsReleaseLabel }}</div><div class="snapshot-key">Secure Boot</div><div :class="['snapshot-value', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
+              <div class="snapshot-row"><div class="snapshot-key">OS Name</div><div class="snapshot-value">{{ systemHeadline.os || 'N/A' }}</div><div class="snapshot-key">Memory</div><div class="snapshot-value">{{ systemSummary.TotalPhysicalMemoryGB ? systemSummary.TotalPhysicalMemoryGB + ' GB' : 'N/A' }}</div></div>
+            </div></div>
           </section>
 
-          <section id="system-section-hardware" class="grid grid-cols-1 2xl:grid-cols-3 gap-4 scroll-mt-4">
-            <div class="rounded-2xl border p-4 bg-white">
-              <h2 class="text-lg font-black mb-3">Hardware Summary</h2>
-              <div class="space-y-2 text-sm">
+          <section id="system-section-hardware" class="grid grid-cols-1 2xl:grid-cols-2 gap-4 scroll-mt-4">
+            <div class="pc-section-shell">
+              <div class="pc-section-heading"><div><h2>Hardware Summary</h2><p>Core functional hardware inventory.</p></div></div>
+              <div class="pc-section-body"><div class="space-y-2 text-sm">
                 <div v-for="row in hardwareSummaryRows" :key="row.label" class="flex items-start gap-3 border-b last:border-b-0 pb-2 last:pb-0">
                   <div class="w-24 text-xs font-black text-slate-400 uppercase shrink-0">{{ row.label }}</div>
                   <div class="font-semibold break-all">{{ row.value || 'N/A' }}</div>
                 </div>
               </div>
               <button @click="selectedPanel='configuration'" class="mt-4 text-xs font-bold text-blue-600 hover:underline">View Hardware Details →</button>
-            </div>
-            <div class="rounded-2xl border p-4 bg-white">
-              <h2 class="text-lg font-black mb-3">Driver Summary</h2>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="summary-box"><div class="text-[10px] text-slate-500">Drivers</div><div class="text-sm font-black mt-1">{{ summaryCards.totalDrivers }}</div></div>
-                <div class="summary-box green"><div class="text-[10px] text-emerald-700">Installed</div><div class="text-sm font-black mt-1 text-emerald-700">{{ summaryCards.installed }}</div></div>
-                <div class="summary-box amber"><div class="text-[10px] text-amber-700">No Matched</div><div class="text-sm font-black mt-1 text-amber-700">{{ summaryCards.storeOnly }}</div></div>
-                <div class="summary-box red"><div class="text-[10px] text-red-700">Problem</div><div class="text-sm font-black mt-1 text-red-700">{{ summaryCards.problem }}</div></div>
               </div>
-              <button @click="selectedOem = null; selectedPanel='overview'" class="mt-4 text-xs font-bold text-blue-600 hover:underline">View Driver Details →</button>
             </div>
-            <div id="system-section-devices" class="rounded-2xl border p-4 bg-white scroll-mt-4">
-              <div class="flex items-center justify-between gap-3 mb-3">
-                <h2 class="text-lg font-black">Problem Device Summary</h2>
+            <div id="system-section-devices" class="pc-section-shell scroll-mt-4">
+              <div class="pc-section-heading flex items-center justify-between gap-3">
+                <div><h2>Device Attention</h2><p>Problem and ghost device evidence.</p></div>
                 <div class="flex gap-2">
-                  <button @click="selectedProblemTab='problem'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='problem' ? 'bg-red-600 text-white border-red-600' : 'bg-white hover:bg-slate-50']">Problem ({{ problemDevicesCombined.length }})</button>
-                  <button @click="selectedProblemTab='ghost'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='ghost' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white hover:bg-slate-50']">Ghost ({{ ghostDevices.length }})</button>
+                  <button @click="selectedProblemTab='problem'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='problem' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50']">Problem ({{ problemDevicesCombined.length }})</button>
+                  <button @click="selectedProblemTab='ghost'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='ghost' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50']">Ghost ({{ ghostDevices.length }})</button>
                 </div>
               </div>
-              <div v-if="selectedProblemTab==='problem'">
+              <div class="pc-section-body"><div v-if="selectedProblemTab==='problem'">
                 <div v-if="problemDevicesCombined.length" class="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
                   <div v-for="(pd,idx) in problemDevicesCombined.slice(0,5)" :key="idx" class="rounded-xl border border-red-200 bg-red-50 p-3">
                     <div class="font-black text-sm">{{ pd.name || pd.description || pd.FriendlyName || 'Unknown Device' }}</div>
@@ -560,22 +658,23 @@
                 <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 font-bold">目前沒有偵測到 Ghost Device。</div>
               </div>
               <button @click="selectedPanel='deviceManager'" class="mt-4 text-xs font-bold text-blue-600 hover:underline">View All Devices →</button>
+              </div>
             </div>
           </section>
 
-          <section id="system-section-raw" class="rounded-2xl border p-4 bg-white scroll-mt-4">
-            <h2 class="text-lg font-black mb-3">Raw System Data</h2>
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <section id="system-section-raw" class="pc-section-shell scroll-mt-4">
+            <div class="pc-section-heading"><div><h2>Raw System Data</h2><p>Parsed source values for detailed inspection.</p></div></div>
+            <div class="pc-section-body grid grid-cols-1 xl:grid-cols-2 gap-4">
               <div>
                 <div class="flex items-center justify-between mb-3 gap-3"><h3 class="font-black">System Summary</h3><input v-model.trim="jsonFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
-                  <div v-for="(value,key) in filteredSystemSummary" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ value }}</div></div>
+                <div class="raw-kv-list max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                  <div v-for="(value,key) in filteredSystemSummary" :key="key" class="raw-kv-row"><div class="raw-kv-key">{{ key }}</div><div class="raw-kv-value">{{ value }}</div></div>
                 </div>
               </div>
               <div>
                 <div class="flex items-center justify-between mb-3 gap-3"><div class="flex items-center gap-2"><h3 class="font-black">Windows Version (Parsed)</h3><button @click="showDecodedReg = !showDecodedReg" class="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50">{{ showDecodedReg ? 'Decoded' : 'Raw' }}</button></div><input v-model.trim="regFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
-                  <div v-for="(value,key) in filteredWinReg" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ formatRegValue(key, value) }}</div></div>
+                <div class="raw-kv-list max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                  <div v-for="(value,key) in filteredWinReg" :key="key" class="raw-kv-row"><div class="raw-kv-key">{{ key }}</div><div class="raw-kv-value">{{ formatRegValue(key, value) }}</div></div>
                 </div>
               </div>
             </div>
@@ -586,6 +685,10 @@
       <div v-else class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-3">
         <div class="xl:col-span-4 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-0 flex flex-col">
           <div class="p-3 border-b bg-slate-50 space-y-2 shrink-0">
+            <div>
+              <h2 class="text-sm font-black text-slate-900">Driver Explorer</h2>
+              <p class="text-[11px] text-slate-500 mt-1">Search and select an OEM INF package.</p>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
               <input v-model.trim="keyword" placeholder="搜尋 oem / inf / provider / device / HWID" class="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200">
               <select v-model="filterProvider" class="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200">
@@ -610,9 +713,9 @@
                   <div class="text-[11px] uppercase tracking-widest text-slate-400 mt-1 truncate">{{ d.providerName }}</div>
                 </div>
                 <div class="flex flex-col gap-1 items-end shrink-0">
-                  <span :class="badgeClass(statusLabel(d))" class="px-2 py-1 rounded-full text-[10px] font-black whitespace-nowrap">{{ statusLabel(d) }}</span>
-                  <span v-if="isNonWhql(d)" class="px-2 py-1 rounded-full text-[10px] font-black bg-yellow-100 text-yellow-700 whitespace-nowrap">NON-WHQL</span>
-                  <span v-if="checkOemStatus(d).isProblem" class="px-2 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700 whitespace-nowrap">DEVICE ERROR</span>
+                  <span :class="badgeClass(statusLabel(d))" class="pc-badge px-2 py-1 text-[10px] font-black whitespace-nowrap">{{ statusLabel(d) }}</span>
+                  <span v-if="isNonWhql(d)" class="pc-badge px-2 py-1 text-[10px] font-black bg-yellow-100 text-yellow-700 whitespace-nowrap">NON-WHQL</span>
+                  <span v-if="checkOemStatus(d).isProblem" class="pc-badge px-2 py-1 text-[10px] font-black bg-red-100 text-red-700 whitespace-nowrap">DEVICE ERROR</span>
                 </div>
               </div>
             </div>
@@ -621,97 +724,77 @@
 
         <div class="xl:col-span-8 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-0 flex flex-col">
           <div v-if="selectedPanel==='overview'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-            <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-              <div class="xl:col-span-2 rounded-2xl border p-4">
-                <h2 class="text-lg font-black mb-3">System Snapshot</h2>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div class="rounded-xl bg-slate-900 text-white p-3"><div class="card-label dark">Model</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.model || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="card-label">SKU</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.sku || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="card-label">BIOS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.bios || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="card-label">OS</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.os || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="card-label">Secure Boot</div><div :class="['mt-1 text-sm font-bold break-all', secureBootClass]">{{ systemHeadline.secureBoot || 'N/A' }}</div></div>
-                  <div class="rounded-xl border p-3"><div class="card-label">Build / Release</div><div class="mt-1 text-sm font-bold break-all">{{ systemHeadline.build || 'N/A' }}</div></div>
+            <section class="pc-section-shell">
+              <div class="pc-section-heading flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+                <div><h2>Driver Overview</h2><p>Driver inventory, binding status and issues detected on the current machine.</p></div>
+                <div class="text-xs font-bold text-slate-300">Select an INF from Driver Explorer to inspect its matched devices.</div>
+              </div>
+              <div class="pc-section-body grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2">
+                  <div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Driver Store Packages</div>
+                  <div class="text-xl font-black text-slate-900 mt-2">{{ summaryCards.totalDrivers }}</div>
+                  <div class="text-[11px] text-slate-500 mt-1">OEM INF packages collected</div>
+                </div>
+                <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div class="text-[10px] uppercase tracking-widest font-black text-emerald-600">Installed Drivers</div>
+                  <div class="text-xl font-black text-emerald-700 mt-2">{{ summaryCards.installed }}</div>
+                  <div class="text-[11px] text-emerald-700 mt-1">Bound to current devices</div>
+                </div>
+                <div class="rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <div class="text-[10px] uppercase tracking-widest font-black text-red-500">Problem Devices</div>
+                  <div class="text-xl font-black text-red-700 mt-2">{{ problemDevicesCombined.length }}</div>
+                  <div class="text-[11px] text-red-700 mt-1">Require investigation</div>
+                </div>
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <div class="text-[10px] uppercase tracking-widest font-black text-amber-600">Unsigned / Non-WHQL</div>
+                  <div class="text-xl font-black text-amber-700 mt-2">{{ summaryCards.nonWhql }}</div>
+                  <div class="text-[11px] text-amber-700 mt-1">Signature attention</div>
                 </div>
               </div>
-              <div class="xl:col-span-1 rounded-2xl border p-4">
-                <h2 class="text-lg font-black mb-3">Driver Summary</h2>
-                <div class="grid grid-cols-2 gap-3">
-                  <div class="summary-box"><div class="text-[10px] text-slate-500">Drivers</div><div class="text-sm font-black mt-1">{{ summaryCards.totalDrivers }}</div></div>
-                  <div class="summary-box green"><div class="text-[10px] text-emerald-700">Installed</div><div class="text-sm font-black mt-1 text-emerald-700">{{ summaryCards.installed }}</div></div>
-                  <div class="summary-box amber"><div class="text-[10px] text-amber-700">No Matched</div><div class="text-sm font-black mt-1 text-amber-700">{{ summaryCards.storeOnly }}</div></div>
-                  <div class="summary-box red"><div class="text-[10px] text-red-700">Problem</div><div class="text-sm font-black mt-1 text-red-700">{{ summaryCards.problem }}</div></div>
-                </div>
-              </div>
-            </div>
-            <div class="rounded-2xl border p-4">
-              <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <h2 class="text-lg font-black">Problem Device Summary</h2>
-                <div class="flex gap-2">
-                  <button @click="selectedProblemTab='problem'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='problem' ? 'bg-red-600 text-white border-red-600' : 'bg-white hover:bg-slate-50']">Problem Device ({{ problemDevicesCombined.length }})</button>
-                  <button @click="selectedProblemTab='ghost'" :class="['px-3 py-2 rounded-xl border text-xs font-bold', selectedProblemTab==='ghost' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white hover:bg-slate-50']">Ghost Device ({{ ghostDevices.length }})</button>
-                </div>
-              </div>
+            </section>
 
-              <div v-if="selectedProblemTab==='problem'">
-                <div v-if="problemDevicesCombined.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div v-for="(pd,idx) in problemDevicesCombined" :key="idx" class="border border-red-200 bg-red-50 rounded-2xl p-4">
-                    <div class="font-black text-slate-900 text-sm">{{ pd.name || pd.description || pd.FriendlyName || 'Unknown Device' }}</div>
-                    <div class="text-xs text-slate-600 mt-2 break-all">{{ pd.pnpId || pd.instanceId || pd.InstanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId)" :href="getDeviceHuntInfo(pd.pnpId || pd.instanceId || pd.InstanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
-                    <div class="mt-3 text-sm font-bold text-red-700 break-all">{{ pd.error || pd.problem || pd.Problem || pd.ConfigManagerErrorCode || 'Device has issue' }}</div>
-                  </div>
-                </div>
-                <div v-else class="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-700 font-bold">目前沒有偵測到 Problem Device。</div>
-              </div>
-
-              <div v-else>
-                <div v-if="ghostDevices.length" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div v-for="(gd,idx) in ghostDevices" :key="idx" class="border border-amber-200 bg-amber-50 rounded-2xl p-4">
-                    <div class="flex items-start justify-between gap-2">
-                      <div class="font-black text-slate-900 text-sm">{{ gd.FriendlyName || gd.name || gd.description || 'Unknown Ghost Device' }}</div>
-                      <span class="px-2 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-500 shrink-0">GHOST</span>
-                    </div>
-                    <div class="text-xs text-slate-600 mt-2 break-all">{{ gd.InstanceId || gd.pnpId || gd.instanceId || 'N/A' }} <a v-if="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId)" :href="getDeviceHuntInfo(gd.InstanceId || gd.pnpId || gd.instanceId).url" target="_blank" rel="noopener noreferrer" class="ml-2 text-blue-600 hover:underline font-semibold whitespace-nowrap">[DeviceHunt]</a></div>
-                    <div class="mt-3 text-sm font-bold text-amber-700 break-all">{{ gd.Problem || gd.ConfigManagerErrorCode || 'CM_PROB_PHANTOM' }}</div>
-                  </div>
-                </div>
-                <div v-else class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600 font-bold">目前沒有偵測到 Ghost Device。</div>
-              </div>
-            </div>
-          </div>
-
-
-          <div v-else-if="selectedPanel==='system'" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-            <div class="rounded-2xl border p-4">
-              <div class="flex items-center justify-between mb-3 gap-3"><h2 class="text-lg font-black">System Summary</h2><input v-model.trim="jsonFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                <div v-for="(value,key) in filteredSystemSummary" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ value }}</div></div>
-              </div>
-              <div v-if="!Object.keys(filteredSystemSummary).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
-            </div>
-            <div class="rounded-2xl border p-4">
-              <div class="flex items-center justify-between mb-3 gap-3"><div class="flex items-center gap-2"><h2 class="text-lg font-black">Windows Version (Parsed)</h2><button @click="showDecodedReg = !showDecodedReg" class="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50">{{ showDecodedReg ? 'Decoded' : 'Raw' }}</button></div><input v-model.trim="regFilter" placeholder="Filter key..." class="text-sm border rounded px-2 py-1"></div>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                <div v-for="(value,key) in filteredWinReg" :key="key" class="rounded-xl bg-slate-50 border p-3"><div class="card-label">{{ key }}</div><div class="mt-1 font-semibold break-all">{{ formatRegValue(key, value) }}</div></div>
-              </div>
-              <div v-if="!Object.keys(filteredWinReg).length" class="text-slate-500 text-sm mt-2">No matched fields.</div>
-            </div>
           </div>
 
           <div v-else-if="selectedPanel==='driver' && selectedOem" class="flex-1 min-h-0 flex flex-col">
-            <div class="bg-slate-900 text-white p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 shrink-0">
-              <div><div class="text-xl font-black tracking-tight">{{ selectedOem.publishedName }}</div><div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName }}</div><div class="text-[11px] uppercase tracking-widest text-emerald-400 mt-2">{{ selectedOem.providerName }}</div></div>
-              <div class="flex flex-wrap gap-2"><span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span><span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span><span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span></div>
-            </div>
-            <div v-if="analyzeDriver(selectedOem).length" class="p-4 space-y-2"><div v-for="(issue, idx) in analyzeDriver(selectedOem)" :key="idx" :class="['px-4 py-2 rounded-xl text-sm font-semibold', issue.level === 'error' ? 'bg-red-100 text-red-700' : issue.level === 'warn' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700']">{{ issue.text }}</div></div>
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border-b bg-slate-50 shrink-0"><div><div class="card-label">Version</div><div class="font-bold mt-1 text-sm break-all">{{ selectedOem.version || 'N/A' }}</div></div><div><div class="card-label">Catalog (.cat)</div><div class="font-bold mt-1 text-sm break-all">{{ getCatalogFileName(selectedOem) }}</div></div><div><div class="card-label">Matched Devices</div><div class="font-bold mt-1 text-sm break-all">{{ matchedPnpDevices.length }}</div></div></div>
-            <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-              <div v-if="matchedPnpDevices.length===0" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-semibold text-sm">目前在系統上沒有找到對應使用這個 OEM INF 的裝置。這通常代表 package 在 driver store 中，但當前沒有 matched device。</div>
-              <div v-for="(dev,idx) in matchedPnpDevices" :key="idx" class="rounded-2xl border border-slate-200 overflow-hidden">
-                <div class="p-4 bg-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div><div class="font-bold text-slate-900 text-sm">{{ dev.description || 'Unknown Device' }}</div><div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div></div><div class="flex flex-wrap gap-2"><span :class="driverStatusClass(dev.specificInfStatus)" class="px-3 py-1 rounded-full text-[11px] font-black">{{ dev.specificInfStatus || 'N/A' }}</span><span v-if="getProblemData(dev.instanceId)" class="px-3 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-700">Problem Device</span></div></div>
-                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4"><div class="space-y-3 text-sm"><div><div class="card-label">Class</div><div class="font-semibold mt-1">{{ dev.deviceClass || 'N/A' }}</div></div><div><div class="card-label">Release Date</div><div class="font-semibold mt-1">{{ dev.specificInfDate || 'N/A' }}</div></div><div><div class="card-label">Signer</div><div class="font-semibold mt-1 break-all">{{ dev.specificInfSigner || 'N/A' }}</div></div><div v-if="getProblemData(dev.instanceId)" class="rounded-2xl border border-red-200 bg-red-50 p-3"><div class="text-[10px] uppercase tracking-widest text-red-500 font-bold">System Diagnostic</div><div class="mt-1 font-bold text-red-700 text-sm">{{ getProblemData(dev.instanceId).error || getProblemData(dev.instanceId).problem }}</div></div></div><div><div class="card-label">Hardware IDs</div><pre class="mt-2 rounded-2xl bg-slate-100 p-3 text-sm min-h-[160px]">{{ (dev.hwids || []).join('\n') || 'N/A' }}</pre></div></div>
+            <div class="pc-identity-header shrink-0">
+              <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-[10px] uppercase tracking-[0.2em] font-black text-slate-400">Driver Identity</div>
+                  <div class="text-xl font-black tracking-tight mt-1 break-all">{{ selectedOem.publishedName || 'N/A' }}</div>
+                  <div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName || 'N/A' }}</div>
+                </div>
+                <div class="flex flex-wrap gap-2 items-center shrink-0"><span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span><span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span><span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span></div>
+              </div>
+              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-x-6 gap-y-3 border-t border-slate-700 pt-4">
+                <div><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Published Name</div><div class="text-sm font-bold mt-1 break-all">{{ selectedOem.publishedName || 'N/A' }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Provider</div><div class="text-sm font-bold mt-1 break-all text-emerald-300">{{ selectedOem.providerName || 'N/A' }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Version</div><div class="text-sm font-bold mt-1 break-all">{{ selectedOem.version || 'N/A' }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Catalog</div><div class="text-sm font-bold mt-1 break-all">{{ getCatalogFileName(selectedOem) }}</div></div>
               </div>
             </div>
+            <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+              <div v-if="analyzeDriver(selectedOem).length" class="space-y-2"><div v-for="(issue, idx) in analyzeDriver(selectedOem)" :key="idx" :class="['px-4 py-2 rounded-xl text-sm font-semibold', issue.level === 'error' ? 'bg-red-100 text-red-700' : issue.level === 'warn' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-700']">{{ issue.text }}</div></div>
+
+              <section class="rounded-2xl border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3"><div><h3 class="font-black text-slate-900">Matched Devices</h3><p class="text-xs text-slate-500 mt-1">Devices currently bound to this OEM INF.</p></div><span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ matchedPnpDevices.length }}</span></div>
+                <div v-if="matchedPnpDevices.length===0" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-semibold text-sm">目前在系統上沒有找到對應使用這個 OEM INF 的裝置。這通常代表 package 在 driver store 中，但當前沒有 matched device。</div>
+                <div v-else class="space-y-3">
+                  <div v-for="(dev,idx) in matchedPnpDevices" :key="idx" class="rounded-2xl border border-slate-200 overflow-hidden">
+                    <div class="p-4 bg-slate-50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                      <div><div class="font-black text-slate-900 text-sm">{{ dev.description || 'Unknown Device' }}</div><div class="text-[11px] text-slate-500 mt-1 break-all">{{ dev.instanceId }}</div></div>
+                      <div class="flex flex-wrap gap-2 items-center"><span :class="driverStatusClass(dev.specificInfStatus)" class="px-3 py-1 rounded-full text-[11px] font-black">{{ dev.specificInfStatus || 'N/A' }}</span><span v-if="getProblemData(dev.instanceId)" class="px-3 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-700">Problem Device</span><button @click="openDeviceFromDriver(dev)" class="px-3 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-700 text-xs font-black">Open in Device Manager</button></div>
+                    </div>
+                    <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div class="space-y-3 text-sm"><div><div class="card-label">Category</div><div class="font-semibold mt-1">{{ dev.deviceClass || 'N/A' }}</div></div><div><div class="card-label">Release Date</div><div class="font-semibold mt-1">{{ dev.specificInfDate || 'N/A' }}</div></div><div><div class="card-label">Signer</div><div class="font-semibold mt-1 break-all">{{ dev.specificInfSigner || 'N/A' }}</div></div><div v-if="getProblemData(dev.instanceId)" class="rounded-2xl border border-red-200 bg-red-50 p-3"><div class="text-[10px] uppercase tracking-widest text-red-500 font-bold">System Diagnostic</div><div class="mt-1 font-bold text-red-700 text-sm">{{ getProblemData(dev.instanceId).error || getProblemData(dev.instanceId).problem }}</div></div></div>
+                      <div><div class="card-label">Hardware IDs</div><pre class="mt-2 rounded-2xl bg-slate-100 p-3 text-sm min-h-[160px] overflow-auto custom-scrollbar">{{ (dev.hwids || []).join('\n') || 'N/A' }}</pre></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+            </div>
           </div>
+
 
           <div v-else class="flex-1 flex items-center justify-center text-slate-400 font-semibold">請從左側選擇一個 driver，或切換到 Driver Status / Device Manager / Platform Configuration / Platform Health。</div>
         </div>
