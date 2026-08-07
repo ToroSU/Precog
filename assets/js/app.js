@@ -1,7 +1,7 @@
 window.addEventListener('dragover', function (e) { e.preventDefault(); });
 window.addEventListener('drop', function (e) { e.preventDefault(); });
 
-const { createApp, ref, computed } = Vue;
+const { createApp, ref, computed, nextTick } = Vue;
 
 createApp({
   setup() {
@@ -24,6 +24,7 @@ createApp({
     const selectedOem = ref(null);
     const selectedDevice = ref(null);
     const deviceKeyword = ref('');
+    const deviceFilterInput = ref(null);
     const deviceOnlyProblem = ref(false);
     const deviceOnlyHighlighted = ref(false);
     const selectedProblemTab = ref('problem');
@@ -951,6 +952,13 @@ createApp({
       selectedDevice.value = null;
     }
 
+    function clearDeviceFilter() {
+      deviceKeyword.value = '';
+      nextTick(() => {
+        if (deviceFilterInput.value) deviceFilterInput.value.focus();
+      });
+    }
+
     function getDeviceCategoryEmoji(className) {
       const key = String(className || '').toLowerCase();
       const map = [
@@ -1025,6 +1033,6 @@ createApp({
       selectedPanel.value = 'deviceManager';
     }
 
-    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
+    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
   }
 }).mount('#app');
