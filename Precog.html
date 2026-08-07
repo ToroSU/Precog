@@ -47,8 +47,7 @@
           <nav class="compact-nav custom-scrollbar" aria-label="Primary navigation">
             <button @click="selectedPanel='system'" :class="navClass('system')">System Info</button>
             <button @click="selectedOem = null; selectedPanel='overview'" :class="navClass('overview')">Driver Status</button>
-            <button @click="selectedPanel='deviceManager'" :class="navClass('deviceManager')">Device Manager</button>
-            <button @click="selectedPanel='configuration'" :class="navClass('configuration')">Hardware Config.</button>
+            <button @click="selectedPanel='deviceManager'; deviceManagerView='devices'" :class="navClass('deviceManager')">Device Manager</button>
             <button @click="selectedPanel='platform'" :class="navClass('platform')">System Health</button>
             <button @click="selectedPanel='apps'" :class="navClass('apps')">Apps</button>
             <button @click="selectedPanel='systemLogs'" :class="navClass('systemLogs')">System Logs</button>
@@ -74,18 +73,24 @@
       </div>
 
       <div v-if="selectedPanel==='deviceManager'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div class="p-4 border-b bg-slate-50 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between shrink-0">
-          <div>
-            <h2 class="text-lg font-black">Device Manager</h2>
-            <p class="text-xs text-slate-500 mt-1">Class-based full PnP device view. Select an OEM INF in Driver Status first to highlight bound devices.</p>
+        <div class="p-4 border-b bg-slate-50 flex flex-col gap-3 shrink-0">
+          <div class="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+            <div>
+              <h2 class="text-lg font-black">Device Manager</h2>
+              <p class="text-xs text-slate-500 mt-1">Inspect the platform as a full PnP device tree or as a focused hardware inventory.</p>
+            </div>
+            <div class="inline-flex self-start lg:self-auto rounded-xl border border-slate-200 bg-white p-1" role="tablist" aria-label="Device Manager views">
+              <button @click="deviceManagerView='devices'" :class="['px-4 py-2 rounded-lg text-xs font-black transition-colors', deviceManagerView==='devices' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50']">Devices</button>
+              <button @click="deviceManagerView='hardware'" :class="['px-4 py-2 rounded-lg text-xs font-black transition-colors', deviceManagerView==='hardware' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50']">Hardware List</button>
+            </div>
           </div>
-          <div class="flex flex-wrap gap-2 items-center">
+          <div v-if="deviceManagerView==='devices'" class="flex flex-wrap gap-2 items-center lg:justify-end">
             <input v-model.trim="deviceKeyword" placeholder="Filter device / HWID / driver" class="rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200 min-w-[260px]">
-            <button @click="deviceOnlyProblem=!deviceOnlyProblem" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyProblem ? 'bg-red-600 text-white border-red-600' : 'bg-white hover:bg-slate-50']">Problems only</button>
-            <button @click="deviceOnlyHighlighted=!deviceOnlyHighlighted" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyHighlighted ? 'bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-slate-50']">Selected INF only</button>
+            <button @click="deviceOnlyProblem=!deviceOnlyProblem" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyProblem ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 hover:bg-slate-50']">Problems only</button>
+            <button @click="deviceOnlyHighlighted=!deviceOnlyHighlighted" :class="['px-3 py-2 rounded-xl border text-xs font-bold', deviceOnlyHighlighted ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 hover:bg-slate-50']">Selected INF only</button>
           </div>
         </div>
-        <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
+        <div v-if="deviceManagerView==='devices'" class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
           <div class="xl:col-span-5 border-r min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2">
             <div v-for="group in filteredDeviceGroups" :key="group.className" class="rounded-2xl border overflow-hidden">
               <div @click="toggleDeviceClass(group.className)" class="bg-slate-50 px-4 py-2 font-black text-sm border-b flex justify-between items-center cursor-pointer select-none hover:bg-slate-100">
@@ -241,33 +246,32 @@
             </div>
           </div>
         </div>
-      </div>
+        <div v-else class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+          <div>
+            <h2 class="text-lg font-black">Hardware List</h2>
+            <p class="text-xs text-slate-500 mt-1">A focused hardware inventory of the functional components present on this machine.</p>
+          </div>
 
-      <div v-else-if="selectedPanel==='configuration'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        <div>
-          <h2 class="text-lg font-black">Hardware List</h2>
-          <p class="text-xs text-slate-500 mt-1">A focused hardware inventory of the functional components present on this machine.</p>
-        </div>
+          <div v-if="!Object.keys(hardwareInventory).length" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-bold">
+            未載入 _HardwareInventory.json。請使用新版 Dowsing 收集 logs 後再拖入 Precog。
+          </div>
 
-        <div v-if="!Object.keys(hardwareInventory).length" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800 font-bold">
-          未載入 _HardwareInventory.json。請使用新版 Dowsing 收集 logs 後再拖入 Precog。
-        </div>
-
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-          <div v-for="section in platformConfigurationSections" :key="section.title"
-               class="rounded-2xl border overflow-hidden bg-white min-w-0">
-            <div class="pc-section-heading compact flex items-center justify-between gap-3">
-              <h3 class="font-black text-sm text-white truncate">{{ section.title }}</h3>
-              <span class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ section.badge }}</span>
-            </div>
-            <div v-if="section.rows.length" class="divide-y divide-slate-100 max-h-[280px] overflow-y-auto custom-scrollbar">
-              <div v-for="(row, idx) in section.rows" :key="section.title + idx + row.name" class="px-3 py-2.5">
-                <div class="font-bold text-sm text-slate-900 break-words">{{ row.name }}</div>
-                <div v-if="row.detail" class="text-xs text-slate-600 mt-1 break-words">{{ row.detail }}</div>
-                <div v-if="row.meta" class="text-[11px] text-slate-400 mt-1 break-all">{{ row.meta }}</div>
+          <div v-else class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+            <div v-for="section in platformConfigurationSections" :key="section.title"
+                 class="rounded-2xl border overflow-hidden bg-white min-w-0">
+              <div class="pc-section-heading compact flex items-center justify-between gap-3">
+                <h3 class="font-black text-sm text-white truncate">{{ section.title }}</h3>
+                <span class="pc-badge px-2 py-1 text-[10px] font-black bg-slate-100 text-slate-600 shrink-0">{{ section.badge }}</span>
               </div>
+              <div v-if="section.rows.length" class="divide-y divide-slate-100 max-h-[280px] overflow-y-auto custom-scrollbar">
+                <div v-for="(row, idx) in section.rows" :key="section.title + idx + row.name" class="px-3 py-2.5">
+                  <div class="font-bold text-sm text-slate-900 break-words">{{ row.name }}</div>
+                  <div v-if="row.detail" class="text-xs text-slate-600 mt-1 break-words">{{ row.detail }}</div>
+                  <div v-if="row.meta" class="text-[11px] text-slate-400 mt-1 break-all">{{ row.meta }}</div>
+                </div>
+              </div>
+              <div v-else class="px-3 py-4 text-sm text-slate-400 font-semibold">No data.</div>
             </div>
-            <div v-else class="px-3 py-4 text-sm text-slate-400 font-semibold">No data.</div>
           </div>
         </div>
       </div>
