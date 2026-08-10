@@ -8,7 +8,7 @@ import zipfile
 
 try:
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, ttk
 except Exception:
     tk = None
     messagebox = None
@@ -20,6 +20,11 @@ from typing import Callable, Dict, List, Tuple
 APP_NAME = "Dowsing"
 MODE_NAME = "Default (For Precog)"
 KEEP_OUTPUT_FOLDER_AFTER_ZIP = False  # False = only keep the .zip file if compression succeeds.
+HIDE_CONSOLE_WHEN_GUI = True  # Hide the legacy console when the Tkinter UI is available.
+
+# Prevent child console applications (PowerShell, cmd, DISM, powercfg, pnputil,
+# wevtutil, etc.) from flashing a console window while the GUI is running.
+SUBPROCESS_CREATIONFLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 OUTPUT_FILES = {
     "OS Version": "_OSVersion.txt",
@@ -72,6 +77,22 @@ OUTPUT_FILES = {
 }
 
 
+def hide_console_window() -> None:
+    """Hide the Windows console when Dowsing is running with its GUI.
+
+    This prevents the legacy black console from sitting behind the Tkinter UI.
+    When packaged, using PyInstaller --noconsole is still the cleanest option because
+    it prevents the console from being created in the first place.
+    """
+    if not HIDE_CONSOLE_WHEN_GUI or tk is None or sys.platform != "win32":
+        return
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+    except Exception:
+        pass
+
 
 def get_mode_from_args() -> str | None:
     """Read --mode default/debug from command-line arguments."""
@@ -105,9 +126,9 @@ def select_run_mode() -> str | None:
         Runs the complete Dowsing collector set.
     """
     if tk is None:
-        print("Select Dowsing mode:")
-        print("  1. Default - Required Precog data, faster")
-        print("  2. Debug   - Full collection, slower")
+        safe_print("Select Dowsing mode:")
+        safe_print("  1. Default - Required Precog data, faster")
+        safe_print("  2. Debug   - Full collection, slower")
         try:
             choice = input("Enter 1 or 2: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -251,7 +272,6 @@ def build_collectors(mode: str) -> List[Tuple[str, Callable[[Path], Tuple[bool, 
         ("Power Plan", collect_power_plan),
         ("IPConfig", collect_ipconfig),
         ("PnP Interfaces", collect_pnp_interfaces),
-        ("PnP Device Status", collect_pnp_device_status),
     ]
 
     if mode == "default":
@@ -336,7 +356,7 @@ def relaunch_as_admin() -> None:
 
 def ensure_admin() -> None:
     if not is_admin():
-        print("[INFO] Administrator privilege required. Requesting elevation...")
+        safe_print("[INFO] Administrator privilege required. Requesting elevation...")
         relaunch_as_admin()
 
 
@@ -356,6 +376,7 @@ def run_command(
             shell=shell,
             encoding=encoding,
             errors="replace",
+            creationflags=SUBPROCESS_CREATIONFLAGS,
         )
         content = result.stdout if result.stdout else result.stderr
         output_path.write_text(content or "", encoding="utf-8", errors="replace")
@@ -391,6 +412,7 @@ def run_powershell(script: str, timeout: int = 180) -> Tuple[bool, str]:
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            creationflags=SUBPROCESS_CREATIONFLAGS,
         )
         content = result.stdout if result.stdout else result.stderr
 
@@ -414,7 +436,12 @@ def run_external_creates_file(
 ) -> Tuple[bool, str]:
     """Run a tool that writes directly to output_path, such as msinfo32, dxdiag, powercfg."""
     try:
-        subprocess.run(cmd, timeout=timeout, check=True)
+        subprocess.run(
+            cmd,
+            timeout=timeout,
+            check=True,
+            creationflags=SUBPROCESS_CREATIONFLAGS,
+        )
         if output_path.exists() and output_path.stat().st_size > 0:
             return True, "OK"
         output_path.write_text("[EMPTY OUTPUT]", encoding="utf-8", errors="replace")
@@ -1229,6 +1256,7 @@ def export_event_log(log_name: str, output_path: Path) -> Tuple[bool, str]:
             timeout=180,
             encoding="utf-8",
             errors="replace",
+            creationflags=SUBPROCESS_CREATIONFLAGS,
         )
         if result.returncode != 0:
             output_path.with_suffix(output_path.suffix + ".txt").write_text(
@@ -1577,33 +1605,223 @@ $result = foreach ($device in (Get-PnpDevice -ErrorAction SilentlyContinue)) {
         return False, str(exc)
 
 
+class CollectionProgressUI:
+    """Compact Dowsing collection window. The run log remains the source of truth on disk."""
+
+    def __init__(self, mode_name: str, total: int, output_dir: Path):
+        self.root = None
+        self.total = max(total, 1)
+        self.finished = False
+        if tk is None:
+            return
+        try:
+            root = tk.Tk()
+            self.root = root
+            root.title("Dowsing - Collection")
+            # Slightly taller default size so the footer is always visible on launch.
+            root.geometry("720x560")
+            root.minsize(680, 520)
+            root.configure(bg="#f8fafc")
+            root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+            root.update_idletasks()
+            x = (root.winfo_screenwidth() - 720) // 2
+            y = (root.winfo_screenheight() - 560) // 2
+            root.geometry(f"720x560+{x}+{y}")
+
+            header = tk.Frame(root, bg="#f8fafc")
+            header.pack(fill="x", padx=28, pady=(22, 10))
+            tk.Label(header, text="Dowsing", font=("Segoe UI", 22, "bold"), bg="#f8fafc", fg="#0f172a").pack(side="left")
+            self.mode_label = tk.Label(header, text=mode_name, font=("Segoe UI", 9, "bold"), bg="#e2e8f0", fg="#334155", padx=10, pady=5)
+            self.mode_label.pack(side="right", pady=4)
+
+            card = tk.Frame(root, bg="#ffffff", highlightbackground="#cbd5e1", highlightthickness=1)
+            card.pack(fill="x", padx=28, pady=(0, 12))
+            self.step_label = tk.Label(card, text="Preparing collection...", anchor="w", font=("Segoe UI", 11, "bold"), bg="#ffffff", fg="#0f172a")
+            self.step_label.pack(fill="x", padx=18, pady=(14, 3))
+            self.count_label = tk.Label(card, text=f"0 / {total}", anchor="w", font=("Segoe UI", 9), bg="#ffffff", fg="#64748b")
+            self.count_label.pack(fill="x", padx=18)
+            self.progress = ttk.Progressbar(card, orient="horizontal", mode="determinate", maximum=self.total)
+            self.progress.pack(fill="x", padx=18, pady=(7, 9))
+            self.output_label = tk.Label(card, text=f"Output: {output_dir}", anchor="w", justify="left", wraplength=640, font=("Segoe UI", 8), bg="#ffffff", fg="#64748b")
+            self.output_label.pack(fill="x", padx=18, pady=(0, 12))
+
+            # Fixed footer is created before the expanding log area and packed at the
+            # bottom. This guarantees that Close is visible without resizing.
+            footer = tk.Frame(root, bg="#f8fafc")
+            footer.pack(side="bottom", fill="x", padx=28, pady=(0, 16))
+            self.status_label = tk.Label(footer, text="Collecting platform data...", anchor="w", font=("Segoe UI", 9), bg="#f8fafc", fg="#475569")
+            self.status_label.pack(side="left", fill="x", expand=True)
+            self.close_btn = tk.Button(
+                footer,
+                text="Close",
+                command=self._on_close,
+                font=("Segoe UI", 10, "bold"),
+                bg="#0f172a",
+                fg="#ffffff",
+                activebackground="#334155",
+                activeforeground="#ffffff",
+                disabledforeground="#94a3b8",
+                relief="flat",
+                cursor="arrow",
+                padx=18,
+                pady=7,
+                state="disabled",
+            )
+            self.close_btn.pack(side="right", padx=(14, 0))
+
+            log_card = tk.Frame(root, bg="#0f172a")
+            log_card.pack(fill="both", expand=True, padx=28, pady=(0, 12))
+            tk.Label(log_card, text="Collection Log", anchor="w", font=("Segoe UI", 10, "bold"), bg="#0f172a", fg="#e2e8f0").pack(fill="x", padx=14, pady=(9, 4))
+            self.log_text = tk.Text(log_card, height=10, wrap="word", font=("Consolas", 9), bg="#0f172a", fg="#cbd5e1", insertbackground="#ffffff", relief="flat", padx=10, pady=8)
+            self.log_text.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+            self.log_text.configure(state="disabled")
+            self._pump()
+        except Exception:
+            self.root = None
+
+    def _on_close(self):
+        """Close immediately after completion; explain why collection cannot be interrupted mid-step."""
+        if self.root is None:
+            return
+        if self.finished:
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            return
+
+        # Native X remains responsive and explains the current behavior instead of
+        # silently ignoring the click as the previous implementation did.
+        if messagebox is not None:
+            try:
+                messagebox.showinfo(
+                    "Dowsing is collecting",
+                    "Collection is still in progress.\n\n"
+                    "Please wait for the current collection to finish before closing Dowsing.",
+                    parent=self.root,
+                )
+            except Exception:
+                pass
+
+    def _pump(self):
+        if self.root is not None:
+            try:
+                self.root.update_idletasks()
+                self.root.update()
+            except Exception:
+                self.root = None
+
+    def log(self, message: str):
+        if self.root is None:
+            return
+        try:
+            self.log_text.configure(state="normal")
+            self.log_text.insert("end", message + "\n")
+            self.log_text.see("end")
+            self.log_text.configure(state="disabled")
+            self._pump()
+        except Exception:
+            pass
+
+    def start_step(self, current: int, item: str):
+        if self.root is None:
+            return
+        self.step_label.configure(text=item)
+        self.count_label.configure(text=f"{current} / {self.total}")
+        self.progress["value"] = max(0, current - 1)
+        self.status_label.configure(text="Collecting platform data...")
+        self.log(f"[RUN] {item}")
+        self._pump()
+
+    def finish_step(self, current: int, item: str, ok: bool, detail: str):
+        if self.root is None:
+            return
+        self.progress["value"] = current
+        self.log(f"[OK] {item}" if ok else f"[FAIL] {item} ({detail})")
+        self._pump()
+
+    def finish(self, zip_path: Path | None, failed_count: int):
+        if self.root is None:
+            return
+        self.finished = True
+        self.progress["value"] = self.total
+        self.step_label.configure(text="Collection complete")
+        self.count_label.configure(text=f"{self.total} / {self.total}")
+        if zip_path and zip_path.exists():
+            self.status_label.configure(text=f"Done - {failed_count} failed. ZIP: {zip_path.name}" if failed_count else f"Done - ZIP: {zip_path.name}")
+            self.log(f"[DONE] Zip file: {zip_path}")
+        else:
+            self.status_label.configure(text=f"Collection finished with {failed_count} failed item(s).")
+
+        # The Close button is always present; completion only enables it.
+        try:
+            self.close_btn.configure(state="normal", cursor="hand2")
+        except Exception:
+            pass
+        self._pump()
+        try:
+            self.root.mainloop()
+        except Exception:
+            pass
+
+def console_available() -> bool:
+    """Return True when a writable console stdout exists.
+
+    PyInstaller --windowed/--noconsole sets sys.stdout/sys.stderr to None on
+    Windows. Console output must therefore be treated as optional.
+    """
+    return sys.stdout is not None and hasattr(sys.stdout, "write")
+
+
+def safe_print(*args, **kwargs) -> None:
+    """Best-effort console print; no-op for windowed builds."""
+    if not console_available():
+        return
+    try:
+        print(*args, **kwargs)
+    except Exception:
+        pass
+
+
 def print_progress(current: int, total: int, item: str) -> None:
-    """Render one replaceable progress line in the console."""
+    """Render one replaceable progress line when a console is available."""
+    if not console_available():
+        return
+
     message = f"[{current}/{total}] {item}"
     try:
         width = shutil.get_terminal_size(fallback=(100, 24)).columns
     except Exception:
         width = 100
 
-    # Keep the line inside the current console width and clear remnants
-    # left by a longer previous item.
     visible_width = max(20, width - 1)
     if len(message) > visible_width:
         message = message[: max(0, visible_width - 3)] + "..."
 
-    sys.stdout.write("\r" + message.ljust(visible_width))
-    sys.stdout.flush()
+    try:
+        sys.stdout.write("\r" + message.ljust(visible_width))
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 def finish_progress(message: str) -> None:
-    """Finish the replaceable progress line and move to the next console line."""
+    """Finish console progress when a console is available."""
+    if not console_available():
+        return
+
     try:
         width = shutil.get_terminal_size(fallback=(100, 24)).columns
     except Exception:
         width = 100
     visible_width = max(20, width - 1)
-    sys.stdout.write("\r" + message[:visible_width].ljust(visible_width) + "\n")
-    sys.stdout.flush()
+
+    try:
+        sys.stdout.write("\r" + message[:visible_width].ljust(visible_width) + "\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 def write_runlog(run_log_path: Path, lines: List[str]) -> None:
@@ -1670,11 +1888,14 @@ def create_output_dir(base_dir: Path | None = None) -> Path:
 def main() -> int:
     global MODE_NAME
 
+    # Dowsing now has a dedicated GUI, so hide the legacy console window when possible.
+    hide_console_window()
+
     mode = get_mode_from_args()
     if mode is None:
         mode = select_run_mode()
         if mode is None:
-            print("[INFO] Dowsing cancelled.")
+            safe_print("[INFO] Dowsing cancelled.")
             return 0
         remember_mode_for_elevation(mode)
 
@@ -1699,10 +1920,18 @@ def main() -> int:
     ]
 
     statuses: Dict[str, str] = {}
+    if mode == "default":
+        statuses["PnP Device Status"] = "NOT_COLLECTED"
     total_collectors = len(collectors)
+    progress_ui = CollectionProgressUI(MODE_NAME, total_collectors, out_dir)
+    progress_ui.log(f"[OK] Mode: {MODE_NAME}")
+    progress_ui.log(f"[OK] Collector count: {total_collectors}")
+    if mode == "default":
+        progress_ui.log("[SKIP] PnP Device Status (Debug only)")
 
     for current_index, (display_name, collector) in enumerate(collectors, start=1):
         print_progress(current_index, total_collectors, display_name)
+        progress_ui.start_step(current_index, display_name)
 
         run_lines.append(f"[RUN] {display_name}")
         write_runlog(run_log_path, run_lines)
@@ -1717,8 +1946,9 @@ def main() -> int:
             run_lines.append(f"[FAIL] {display_name} ({detail})")
 
         write_runlog(run_log_path, run_lines)
+        progress_ui.finish_step(current_index, display_name, ok, detail)
 
-    failed_count = sum(1 for value in statuses.values() if value != "OK")
+    failed_count = sum(1 for value in statuses.values() if value not in {"OK", "NOT_COLLECTED"})
     finish_progress(
         f"[{total_collectors}/{total_collectors}] Log collection complete"
         + (f" ({failed_count} failed)" if failed_count else "")
@@ -1765,15 +1995,16 @@ def main() -> int:
         sidecar_log = zip_path.with_suffix(".RunLog.txt")
         sidecar_log.write_text("\n".join(run_lines) + "\n", encoding="utf-8")
 
-    print("=" * 60)
+    safe_print("=" * 60)
     if zip_path and zip_path.exists():
-        print(f"[DONE] Zip file: {zip_path}")
+        safe_print(f"[DONE] Zip file: {zip_path}")
         if not KEEP_OUTPUT_FOLDER_AFTER_ZIP:
-            print("[DONE] Output folder removed; only ZIP is kept.")
+            safe_print("[DONE] Output folder removed; only ZIP is kept.")
     else:
-        print(f"[DONE] Output folder: {out_dir}")
-    print("=" * 60)
+        safe_print(f"[DONE] Output folder: {out_dir}")
+    safe_print("=" * 60)
 
+    progress_ui.finish(zip_path, failed_count)
     return 0
 
 
