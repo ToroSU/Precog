@@ -370,44 +370,34 @@
       </div>
 
       <div v-else-if="selectedPanel==='apps'" class="flex-1 min-h-0 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div class="px-5 py-3 border-b bg-white shrink-0 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+        <div class="px-5 py-3 border-b bg-white shrink-0 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div class="min-w-0">
             <h2 class="text-lg font-black text-slate-900">Apps</h2>
-            <p class="text-xs text-slate-500 mt-1">Installed software inventory and startup behavior from merged Win32, Appx, provisioned, and startup data.</p>
+            <p class="text-xs text-slate-500 mt-1">Software inventory and startup behavior from merged Win32, Appx, provisioned, and startup data.</p>
           </div>
-          <div class="flex flex-wrap items-center justify-end gap-3 shrink-0">
-            <div class="text-xs font-bold text-slate-500 whitespace-nowrap">Showing: {{ showMicrosoftApps ? 'Microsoft Apps' : 'OEM / Non-Microsoft Apps' }}</div>
-            <button @click="showMicrosoftApps = !showMicrosoftApps" class="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-700">
-              {{ showMicrosoftApps ? 'Show OEM Apps' : 'Show Microsoft Apps' }}
-            </button>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 lg:w-[620px] shrink-0" aria-label="Apps overview summary">
+            <div v-for="card in appsOverviewCards" :key="card.title" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 min-w-0">
+              <div class="text-[9px] uppercase tracking-wide font-black text-slate-400 truncate">{{ card.title.replace(' Applications', '') }}</div>
+              <div class="text-base leading-tight font-black text-slate-900 mt-0.5">{{ card.count }}</div>
+              <div class="hidden 2xl:block text-[9px] text-slate-400 mt-0.5 truncate">{{ card.subtitle }}</div>
+            </div>
           </div>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
+        <div class="flex-1 min-h-0 overflow-hidden p-4 flex flex-col gap-4">
 
-          <section class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 px-1">
-            <div class="min-w-0">
-              <h3 class="pc-subsection-title">Apps Overview</h3>
-              <p class="text-xs text-slate-500 mt-1">Quick software inventory summary from the currently loaded machine.</p>
-            </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 xl:w-[620px] shrink-0" aria-label="Apps overview summary">
-              <div v-for="card in appsOverviewCards" :key="card.title" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 min-w-0">
-                <div class="text-[10px] uppercase tracking-wide font-black text-slate-400 truncate">{{ card.title.replace(' Applications', '') }}</div>
-                <div class="text-lg leading-tight font-black text-slate-900 mt-0.5">{{ card.count }}</div>
-                <div class="text-[10px] text-slate-400 mt-0.5 truncate">{{ card.subtitle }}</div>
+          <section class="shrink-0 rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <button type="button" @click="startupAppsExpanded = !startupAppsExpanded" :aria-expanded="startupAppsExpanded" class="pc-section-heading w-full flex items-center justify-between gap-4 text-left hover:bg-slate-100/70 transition-colors">
+              <div class="flex items-center gap-3 min-w-0">
+                <span :class="['inline-flex items-center justify-center w-5 h-5 rounded-md text-xs font-black text-slate-500 transition-transform duration-200', startupAppsExpanded ? 'rotate-90' : 'rotate-0']" aria-hidden="true">▸</span>
+                <div class="min-w-0">
+                  <h3 class="font-black">Startup Apps</h3>
+                  <p v-if="startupAppsExpanded" class="text-xs text-slate-500 mt-1">Applications configured to participate in system startup.</p>
+                </div>
               </div>
-            </div>
-          </section>
-
-          <section class="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div class="pc-section-heading flex items-center justify-between">
-              <div>
-                <h3 class="font-black">Startup Apps</h3>
-                <p class="text-xs text-slate-500 mt-1">Applications configured to participate in system startup.</p>
-              </div>
-              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ filteredStartupApps.length }} Items</span>
-            </div>
-            <div class="overflow-auto custom-scrollbar">
+              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black shrink-0">{{ filteredStartupApps.length }} Items</span>
+            </button>
+            <div v-show="startupAppsExpanded" class="max-h-[250px] overflow-auto custom-scrollbar border-t border-slate-200">
               <table class="min-w-full text-sm">
                 <thead class="bg-white sticky top-0 z-10">
                   <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b">
@@ -421,7 +411,7 @@
                   <tr v-for="app in filteredStartupApps" :key="app.Name + app.Location" class="border-b last:border-b-0 hover:bg-slate-50">
                     <td class="px-4 py-3">
                       <div class="font-bold text-slate-900 whitespace-nowrap">{{ app.Name || 'Unknown' }}</div>
-                      <div class="text-[11px] font-bold text-slate-400 mt-1">Startup Application</div>
+                      <div class="mt-1"><span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-black">{{ app.displayPublisher || 'Other / Unknown' }}</span></div>
                     </td>
                     <td class="px-4 py-3 text-xs text-slate-600 break-all max-w-[760px]">{{ app.Command || '' }}</td>
                     <td class="px-4 py-3 text-xs text-slate-500 break-all">{{ app.Location || '' }}</td>
@@ -433,22 +423,41 @@
             </div>
           </section>
 
-          <section class="rounded-2xl border border-slate-200 overflow-hidden">
-            <div class="pc-section-heading flex items-center justify-between">
+          <section class="flex-1 min-h-0 rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
+            <div class="pc-section-heading shrink-0 flex items-center justify-between">
               <div>
                 <h3 class="font-black">Installed Applications</h3>
-                <p class="text-xs text-slate-500 mt-1">Merged and deduplicated from Win32, Appx, and provisioned application inventories.</p>
+                <p class="text-xs text-slate-500 mt-1">Merged and deduplicated inventory with normalized publisher grouping.</p>
               </div>
-              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ combinedInstalledApps.length }} Apps</span>
+              <span class="pc-badge px-3 py-1 bg-slate-100 text-slate-600 text-xs font-black">{{ combinedInstalledApps.length }} / {{ allCombinedInstalledApps.length }} Apps</span>
             </div>
-            <div class="overflow-auto custom-scrollbar">
+
+            <div class="shrink-0 px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex flex-col xl:flex-row xl:items-center gap-3">
+              <div class="relative flex-1 min-w-[260px] max-w-[620px]">
+                <input ref="appFilterInput" v-model="appFilterKeyword" type="text" placeholder="Filter app / publisher / version / package" class="w-full rounded-xl border border-slate-300 bg-white pl-3 pr-10 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300">
+                <button v-if="appFilterKeyword" @click="clearAppFilter" type="button" title="Clear application filter" aria-label="Clear application filter" class="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 flex items-center justify-center text-sm font-black">×</button>
+              </div>
+
+              <select v-model="appPublisherFilter" class="min-w-[170px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-200">
+                <option value="All">All Publishers</option>
+                <option v-for="publisher in appPublisherOptions" :key="publisher" :value="publisher">{{ publisher }}</option>
+              </select>
+
+              <div class="inline-flex items-center rounded-xl border border-slate-300 bg-white p-1 shrink-0" aria-label="Application audience filter">
+                <button @click="setAppAudience('All')" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition', appAudienceFilter === 'All' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100']">All</button>
+                <button @click="setAppAudience('Non-Microsoft')" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition', appAudienceFilter === 'Non-Microsoft' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100']">Non-Microsoft</button>
+                <button @click="setAppAudience('Microsoft')" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition', appAudienceFilter === 'Microsoft' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100']">Microsoft</button>
+              </div>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-auto custom-scrollbar bg-white">
               <table class="min-w-full text-sm">
-                <thead class="bg-white sticky top-0 z-10">
+                <thead class="bg-white sticky top-0 z-10 shadow-[0_1px_0_0_rgba(226,232,240,1)]">
                   <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b">
                     <th class="px-4 py-3">Application</th>
                     <th class="px-4 py-3">Version</th>
                     <th class="px-4 py-3">Publisher</th>
-                    <th class="px-4 py-3">Install Source</th>
+                    <th class="px-4 py-3">Source</th>
                     <th class="px-4 py-3">Package / Location</th>
                   </tr>
                 </thead>
@@ -456,16 +465,19 @@
                   <tr v-for="app in combinedInstalledApps" :key="app.name + app.source" class="border-b last:border-b-0 hover:bg-slate-50">
                     <td class="px-4 py-3">
                       <div class="font-bold text-slate-900">{{ app.name }}</div>
-                      <div class="text-[11px] font-bold text-slate-400 mt-1">Application Identity</div>
+                      <div class="text-[10px] font-bold text-slate-400 mt-1">{{ app.isMicrosoft ? 'Microsoft software' : 'Non-Microsoft software' }}</div>
                     </td>
                     <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ app.version || 'N/A' }}</td>
-                    <td class="px-4 py-3 text-slate-600">{{ app.publisher || 'N/A' }}</td>
-                    <td class="px-4 py-3"><span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-black">{{ app.source }}</span></td>
-                    <td class="px-4 py-3 text-xs text-slate-500 break-all max-w-[520px]">{{ app.packageName || app.installLocation || 'N/A' }}</td>
+                    <td class="px-4 py-3">
+                      <span class="inline-flex px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-black" :title="app.rawPublisher || app.displayPublisher">{{ app.displayPublisher || 'Other / Unknown' }}</span>
+                      <div v-if="app.rawPublisher && app.rawPublisher !== app.displayPublisher" class="text-[10px] text-slate-400 mt-1 max-w-[260px] truncate" :title="app.rawPublisher">Raw publisher preserved</div>
+                    </td>
+                    <td class="px-4 py-3"><span class="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-black whitespace-nowrap">{{ app.source }}</span></td>
+                    <td class="px-4 py-3 text-xs text-slate-500 break-all max-w-[520px]" :title="app.packageName || app.installLocation || ''">{{ app.packageName || app.installLocation || 'N/A' }}</td>
                   </tr>
                 </tbody>
               </table>
-              <div v-if="!combinedInstalledApps.length" class="p-6 text-center text-slate-500 font-semibold">No installed app rows matched current filter.</div>
+              <div v-if="!combinedInstalledApps.length" class="p-6 text-center text-slate-500 font-semibold">No installed applications matched the current filters.</div>
             </div>
           </section>
         </div>

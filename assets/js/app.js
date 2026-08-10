@@ -66,7 +66,12 @@ createApp({
     const installedUpdates = ref([]);
     const servicesRows = ref([]);
     const scheduledTasksRows = ref([]);
-    const showMicrosoftApps = ref(false);
+    const showMicrosoftApps = ref(false); // Legacy compatibility; Apps v2 uses appAudienceFilter.
+    const appFilterKeyword = ref('');
+    const appFilterInput = ref(null);
+    const appPublisherFilter = ref('All');
+    const appAudienceFilter = ref('Non-Microsoft');
+    const startupAppsExpanded = ref(true);
     const rawDefaultAppsText = ref('');
     const rawPowerPlanText = ref('');
     const rawIPConfigText = ref('');
@@ -408,27 +413,58 @@ createApp({
 
 
 
+    function normalizeAppPublisher(name, rawPublisher, packageName = '') {
+      const raw = cleanText(rawPublisher);
+      const haystack = [name, raw, packageName].filter(Boolean).join(' ').toLowerCase();
+
+      // Curated normalization for common ODM/OEM software publishers.
+      if (/microsoft|windowsapps|edgeupdate|onedrive|securityhealth/.test(haystack)) return 'Microsoft';
+      if (/giga[- ]?byte|gigabyte|gimate|aorus/.test(haystack)) return 'GIGABYTE';
+      if (/nvidia/.test(haystack)) return 'NVIDIA';
+      if (/advancedmicrodevices|advanced micro devices|amdradeon|amd radeon|\bamd\b/.test(haystack)) return 'AMD';
+      if (/realtek/.test(haystack)) return 'Realtek';
+      if (/dolby/.test(haystack)) return 'Dolby';
+      if (/a-volute|avolute|nahimic/.test(haystack)) return 'A-Volute';
+      if (/intel/.test(haystack)) return 'Intel';
+
+      // Appx certificate publishers can be GUID-like CN values. Keep those out of the main UI.
+      if (!raw) return 'Other / Unknown';
+      const guidCn = /^CN\s*=\s*[\{(]?[0-9a-f-]{20,}[\})]?$/i.test(raw);
+      if (guidCn) return 'Other / Unknown';
+
+      // For human-readable certificate subjects prefer O=, then CN=.
+      const orgMatch = raw.match(/(?:^|,)\s*O\s*=\s*"?([^",]+(?:\s+[^",]+)*)"?/i);
+      if (orgMatch && orgMatch[1]) return orgMatch[1].trim();
+      const cnMatch = raw.match(/^CN\s*=\s*"?([^",]+(?:\s+[^",]+)*)"?/i);
+      if (cnMatch && cnMatch[1] && !/^[0-9a-f-]{20,}$/i.test(cnMatch[1].trim())) return cnMatch[1].trim();
+      return raw;
+    }
+
     const allCombinedInstalledApps = computed(() => {
       const map = new Map();
 
       function addApp(row, source) {
         const name = appDisplayName(row);
         const version = appVersion(row);
-        const publisher = appPublisher(row);
+        const rawPublisher = appPublisher(row);
         const family = row.PackageFamilyName || row.PackageName || row.PackageFullName || row.PSChildName || '';
+        const packageName = row.PackageFullName || row.PackageName || row.PackageFamilyName || '';
         const key = normalizeAppKey(name || family);
         if (!key) return;
 
         const current = map.get(key);
+        const displayPublisher = normalizeAppPublisher(name, rawPublisher, packageName || family);
         const item = {
           name,
           version,
-          publisher,
+          publisher: displayPublisher,
+          displayPublisher,
+          rawPublisher,
           source,
-          packageName: row.PackageFullName || row.PackageName || row.PackageFamilyName || '',
+          packageName,
           installLocation: row.InstallLocation || '',
           raw: row,
-          isMicrosoft: isMicrosoftApp(row)
+          isMicrosoft: displayPublisher === 'Microsoft'
         };
 
         if (!current) {
@@ -437,10 +473,14 @@ createApp({
           const sources = new Set(String(current.source).split(' + ').concat(source));
           current.source = [...sources].filter(Boolean).join(' + ');
           current.version = current.version || version;
-          current.publisher = current.publisher || publisher;
+          current.rawPublisher = current.rawPublisher || rawPublisher;
           current.packageName = current.packageName || item.packageName;
           current.installLocation = current.installLocation || item.installLocation;
-          current.isMicrosoft = current.isMicrosoft || item.isMicrosoft;
+          if (current.displayPublisher === 'Other / Unknown' && displayPublisher !== 'Other / Unknown') {
+            current.displayPublisher = displayPublisher;
+            current.publisher = displayPublisher;
+          }
+          current.isMicrosoft = current.displayPublisher === 'Microsoft';
         }
       }
 
@@ -451,21 +491,60 @@ createApp({
       return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
     });
 
-    const combinedInstalledApps = computed(() => allCombinedInstalledApps.value
-      .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft));
+    const appPublisherOptions = computed(() => {
+      const preferred = ['GIGABYTE', 'AMD', 'NVIDIA', 'Intel', 'Realtek', 'Dolby', 'A-Volute', 'Microsoft', 'Other / Unknown'];
+      const found = [...new Set(allCombinedInstalledApps.value.map(app => app.displayPublisher).filter(Boolean))];
+      return found.sort((a, b) => {
+        const ai = preferred.indexOf(a), bi = preferred.indexOf(b);
+        if (ai !== -1 || bi !== -1) {
+          if (ai === -1) return 1;
+          if (bi === -1) return -1;
+          return ai - bi;
+        }
+        return a.localeCompare(b);
+      });
+    });
+
+    const combinedInstalledApps = computed(() => {
+      const q = appFilterKeyword.value.trim().toLowerCase();
+      return allCombinedInstalledApps.value.filter(app => {
+        const audienceMatch = appAudienceFilter.value === 'All'
+          || (appAudienceFilter.value === 'Microsoft' ? app.isMicrosoft : !app.isMicrosoft);
+        const publisherMatch = appPublisherFilter.value === 'All' || app.displayPublisher === appPublisherFilter.value;
+        const searchText = [
+          app.name, app.version, app.displayPublisher, app.rawPublisher, app.source,
+          app.packageName, app.installLocation
+        ].filter(Boolean).join(' ').toLowerCase();
+        const keywordMatch = !q || searchText.includes(q);
+        return audienceMatch && publisherMatch && keywordMatch;
+      });
+    });
+
+    function setAppAudience(value) {
+      appAudienceFilter.value = value;
+      appPublisherFilter.value = 'All';
+    }
+
+    function clearAppFilter() {
+      appFilterKeyword.value = '';
+      nextTick(() => appFilterInput.value?.focus());
+    }
 
     const allStartupApps = computed(() => startupApps.value
-      .map(r => ({ ...r, isMicrosoft: isMicrosoftApp({ DisplayName: r.Name, Publisher: r.Command }) }))
+      .map(r => {
+        const displayPublisher = normalizeAppPublisher(r.Name || '', r.Command || '', r.Location || '');
+        return { ...r, displayPublisher, isMicrosoft: displayPublisher === 'Microsoft' };
+      })
       .sort((a, b) => String(a.Name || '').localeCompare(String(b.Name || ''))));
 
-    const filteredStartupApps = computed(() => allStartupApps.value
-      .filter(app => showMicrosoftApps.value ? app.isMicrosoft : !app.isMicrosoft));
+    // Startup is a behavior view and intentionally stays independent from Installed Apps filters.
+    const filteredStartupApps = computed(() => allStartupApps.value);
 
     const appsOverviewCards = computed(() => [
-      { title: 'Installed Applications', count: allCombinedInstalledApps.value.length, note: 'Merged and deduplicated' },
-      { title: 'Startup Applications', count: allStartupApps.value.length, note: 'Configured startup entries' },
-      { title: 'OEM Applications', count: allCombinedInstalledApps.value.filter(app => !app.isMicrosoft).length, note: 'Non-Microsoft software' },
-      { title: 'Microsoft Applications', count: allCombinedInstalledApps.value.filter(app => app.isMicrosoft).length, note: 'Microsoft software' }
+      { title: 'Installed Applications', count: allCombinedInstalledApps.value.length, subtitle: 'Merged and deduplicated' },
+      { title: 'Startup Applications', count: allStartupApps.value.length, subtitle: 'Configured startup entries' },
+      { title: 'Non-Microsoft Applications', count: allCombinedInstalledApps.value.filter(app => !app.isMicrosoft).length, subtitle: 'OEM and third-party software' },
+      { title: 'Microsoft Applications', count: allCombinedInstalledApps.value.filter(app => app.isMicrosoft).length, subtitle: 'Microsoft software' }
     ]);
 
     const operationsLogCards = computed(() => [
@@ -1041,6 +1120,6 @@ createApp({
       selectedPanel.value = 'deviceManager';
     }
 
-    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
+    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, appFilterKeyword, appFilterInput, appPublisherFilter, appAudienceFilter, startupAppsExpanded, appPublisherOptions, setAppAudience, clearAppFilter, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
   }
 }).mount('#app');
