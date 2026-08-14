@@ -19,6 +19,7 @@ from typing import Callable, Dict, List, Tuple
 
 
 APP_NAME = "Dowsing"
+APP_VERSION = "v26.8.14.1"
 MODE_NAME = "Default (For Precog)"
 KEEP_OUTPUT_FOLDER_AFTER_ZIP = False  # False = only keep the .zip file if compression succeeds.
 HIDE_CONSOLE_WHEN_GUI = True  # Hide the legacy console when the Tkinter UI is available.
@@ -163,7 +164,7 @@ def select_run_mode() -> str | None:
 
     tk.Label(
         root,
-        text="Dowsing",
+        text=f"{APP_NAME}  {APP_VERSION}",
         font=("Segoe UI", 22, "bold"),
         bg="#f8fafc",
         fg="#0f172a",
@@ -1763,7 +1764,7 @@ class CollectionProgressUI:
 
             header = tk.Frame(root, bg="#f8fafc")
             header.pack(fill="x", padx=28, pady=(22, 10))
-            tk.Label(header, text="Dowsing", font=("Segoe UI", 22, "bold"), bg="#f8fafc", fg="#0f172a").pack(side="left")
+            tk.Label(header, text=f"{APP_NAME}  {APP_VERSION}", font=("Segoe UI", 22, "bold"), bg="#f8fafc", fg="#0f172a").pack(side="left")
             self.mode_label = tk.Label(header, text=mode_name, font=("Segoe UI", 9, "bold"), bg="#e2e8f0", fg="#334155", padx=10, pady=5)
             self.mode_label.pack(side="right", pady=4)
 
@@ -1971,6 +1972,7 @@ def write_collection_status(
 
     lines = [
         f"{APP_NAME} Python",
+        f"Version={APP_VERSION}",
         f"ComputerName={computer_name}",
         f"Timestamp={timestamp_compact}",
         f"OutputFolder={output_folder}",
@@ -2042,7 +2044,8 @@ def main() -> int:
     collectors = build_collectors(mode)
 
     run_lines = [
-        f"[OK] {APP_NAME} started",
+        f"[OK] {APP_NAME} {APP_VERSION} started",
+        f"[OK] Version: {APP_VERSION}",
         f"[OK] Mode: {MODE_NAME}",
         f"[OK] Collector count: {len(collectors)}",
         f"[OK] ComputerName: {computer_name}",
@@ -2056,6 +2059,7 @@ def main() -> int:
         statuses["PnP Device Status"] = "NOT_COLLECTED"
     total_collectors = len(collectors)
     progress_ui = CollectionProgressUI(MODE_NAME, total_collectors, out_dir)
+    progress_ui.log(f"[OK] Version: {APP_VERSION}")
     progress_ui.log(f"[OK] Mode: {MODE_NAME}")
     progress_ui.log(f"[OK] Collector count: {total_collectors}")
     if mode == "default":
