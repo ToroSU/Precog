@@ -274,6 +274,7 @@ def build_collectors(mode: str) -> List[Tuple[str, Callable[[Path], Tuple[bool, 
         ("Power Plan", collect_power_plan),
         ("IPConfig", collect_ipconfig),
         ("PnP Interfaces", collect_pnp_interfaces),
+        ("Parent Device Collection", collect_pnp_parent_devices),
     ]
 
     if mode == "default":
@@ -1413,7 +1414,7 @@ def collect_pnp_interfaces(out_dir: Path) -> Tuple[bool, str]:
 def collect_pnp_parent_devices(out_dir: Path) -> Tuple[bool, str]:
     """Collect the parent relationship for every PnP device.
 
-    Debug mode only. The resulting CSV is intended for Precog's future
+    Default and Debug modes. The resulting CSV is used by Precog's
     "Devices by Connection" view. Each row keeps the child device identity
     together with DEVPKEY_Device_Parent so Precog can rebuild the hierarchy.
 
