@@ -41,7 +41,7 @@
         <div class="compact-app-header-inner">
           <div class="compact-brand shrink-0" title="Driver / Device / Platform Insight & Triage System">
             <h1 class="text-xl font-black tracking-tight text-slate-900">Precog</h1>
-            <span class="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-900 text-white">v1.0</span>
+            <span class="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-900 text-white">v26.8.14.1</span>
           </div>
 
           <nav class="compact-nav custom-scrollbar" aria-label="Primary navigation">
@@ -77,10 +77,10 @@
           <div class="flex flex-col xl:flex-row xl:items-center gap-3 xl:justify-between">
             <div class="min-w-0">
               <h2 class="text-lg font-black">Device Manager</h2>
-              <p class="text-xs text-slate-500 mt-1">Inspect the platform as a full PnP device tree or as a focused hardware inventory.</p>
+              <p class="text-xs text-slate-500 mt-1">Inspect devices by class, trace their connection hierarchy, or review the focused hardware inventory.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2 xl:justify-end">
-              <template v-if="deviceManagerView==='devices'">
+              <template v-if="deviceManagerView!=='hardware'">
                 <div class="relative w-[240px] max-w-full">
                   <input ref="deviceFilterInput" v-model.trim="deviceKeyword" placeholder="Filter device / HWID / driver" class="w-full rounded-xl border px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-blue-200">
                   <button v-if="deviceKeyword" type="button" @click="clearDeviceFilter" aria-label="Clear device filter" title="Clear filter" class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-sm font-bold leading-none text-slate-500 transition-colors hover:bg-slate-300 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200">×</button>
@@ -90,13 +90,15 @@
               </template>
               <div class="inline-flex rounded-xl border border-slate-200 bg-white p-0.5 shrink-0" role="tablist" aria-label="Device Manager views">
                 <button @click="deviceManagerView='devices'" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition-colors', deviceManagerView==='devices' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50']">Devices</button>
+                <button @click="deviceManagerView='connection'" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition-colors', deviceManagerView==='connection' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50']">By Connection (beta)</button>
                 <button @click="deviceManagerView='hardware'" :class="['px-3 py-1.5 rounded-lg text-xs font-black transition-colors', deviceManagerView==='hardware' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50']">Hardware List</button>
               </div>
             </div>
           </div>
         </div>
-        <div v-if="deviceManagerView==='devices'" class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
+        <div v-if="deviceManagerView!=='hardware'" class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
           <div class="xl:col-span-5 border-r min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2">
+            <template v-if="deviceManagerView==='devices'">
             <div v-for="group in filteredDeviceGroups" :key="group.className" class="rounded-2xl border overflow-hidden">
               <div @click="toggleDeviceClass(group.className)" class="bg-slate-50 px-4 py-2 font-black text-sm border-b flex justify-between items-center cursor-pointer select-none hover:bg-slate-100">
                 <span class="flex items-center min-w-0"><span class="inline-block w-4 text-slate-400 shrink-0">{{ isDeviceClassCollapsed(group.className) ? '▸ ' : '▾ ' }}</span><span class="mr-2 shrink-0" aria-hidden="true">{{ getDeviceCategoryEmoji(group.className) }}</span><span class="truncate">{{ group.className }}</span></span>
@@ -117,6 +119,77 @@
               </div>
             </div>
             <div v-if="!filteredDeviceGroups.length" class="text-slate-400 font-semibold text-center py-10">No matched devices.</div>
+            </template>
+
+            <template v-else>
+              <div v-if="parentDeviceRows.length" class="rounded-2xl border border-slate-200 overflow-hidden bg-white">
+                <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-black text-sm text-slate-900">Devices by Connection</div>
+                    <div class="text-[11px] text-slate-500 mt-1">
+                      {{ connectionTopology.edgeCount }} parent-child links · {{ connectionTopology.nodes.size }} nodes
+                    </div>
+                  </div>
+                  <span class="pc-badge px-2 py-1 text-[10px] font-black bg-blue-100 text-blue-700 shrink-0">DEBUG TOPOLOGY</span>
+                </div>
+
+                <div class="divide-y divide-slate-100">
+                  <div
+                    v-for="row in connectionTreeRows"
+                    :key="row.key"
+                    @click="selectConnectionDevice(row)"
+                    :class="['connection-tree-row cursor-pointer border-l-4',
+                      selectedDevice && String(selectedDevice.instanceId || '').toLowerCase()===row.key
+                        ? 'bg-blue-50 border-l-blue-600'
+                        : row.isProblem
+                          ? 'bg-red-50/70 border-l-red-400'
+                          : row.isGhost
+                            ? 'bg-amber-50/60 border-l-amber-300'
+                            : 'border-l-transparent hover:bg-slate-50']">
+                    <div class="flex items-start gap-1.5 py-2.5 pr-2" :style="{ paddingLeft: (8 + row.depth * 18) + 'px' }">
+                      <button
+                        type="button"
+                        @click.stop="toggleConnectionNode(row, row.depth)"
+                        :disabled="!row.hasChildren"
+                        :class="['w-5 h-5 shrink-0 inline-flex items-center justify-center rounded text-sm font-black mt-0.5',
+                          row.hasChildren ? 'text-slate-500 hover:bg-slate-200' : 'text-slate-300 cursor-default']"
+                        :title="row.hasChildren ? (row.expanded ? 'Collapse' : 'Expand') : 'Leaf device'">
+                        {{ row.hasChildren ? (row.expanded ? '▾' : '▸') : '·' }}
+                      </button>
+
+                      <span class="w-5 shrink-0 text-center mt-0.5" aria-hidden="true">{{ getDeviceCategoryEmoji(row.className) }}</span>
+
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-start justify-between gap-2">
+                          <div :class="['font-bold text-sm min-w-0 truncate', row.synthetic ? 'text-slate-600' : 'text-slate-900']">
+                            {{ row.name || row.instanceId }}
+                          </div>
+                          <span v-if="row.isProblem" class="pc-badge px-2 py-1 text-[9px] font-black bg-red-100 text-red-700 shrink-0">PROBLEM</span>
+                          <span v-else-if="row.isGhost" class="pc-badge px-2 py-1 text-[9px] font-black bg-slate-100 text-slate-500 shrink-0">GHOST</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                          <span class="text-[10px] font-bold text-slate-400">{{ row.className || 'Unknown' }}</span>
+                          <span v-if="row.children.length" class="text-[10px] text-slate-400">{{ row.children.length }} child{{ row.children.length===1 ? '' : 'ren' }}</span>
+                          <span v-if="row.synthetic" class="text-[9px] font-black uppercase tracking-wider text-amber-600">Topology node</span>
+                        </div>
+                        <div class="text-[10px] text-slate-400 mt-1 break-all font-mono">{{ row.instanceId }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="!connectionTreeRows.length" class="p-8 text-center text-sm font-semibold text-slate-400">
+                  No connection nodes match the current filter.
+                </div>
+              </div>
+
+              <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                <div class="font-black text-slate-700">Devices by Connection data is not available.</div>
+                <div class="text-xs text-slate-500 mt-2">
+                  Load a Dowsing Debug package containing <span class="font-mono font-bold">_PnpParentDevices.csv</span>.
+                </div>
+              </div>
+            </template>
           </div>
           <div class="xl:col-span-7 min-h-0 overflow-y-auto custom-scrollbar p-4">
             <div v-if="selectedDevice" class="space-y-4">
@@ -133,6 +206,11 @@
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="pc-property-card"><div class="label">Class</div><div class="value">{{ selectedDevice.className || 'N/A' }}</div></div>
+                <div class="pc-property-card" v-if="getParentConnection(selectedDevice.instanceId)">
+                  <div class="label">Parent Device</div>
+                  <div class="value break-all">{{ getParentConnection(selectedDevice.instanceId).name }}</div>
+                  <div class="text-[10px] text-slate-400 mt-1 font-mono break-all">{{ getParentConnection(selectedDevice.instanceId).instanceId }}</div>
+                </div>
                 <div class="pc-property-card"><div class="label">Status</div><div :class="['value', selectedDevice.isProblem ? 'text-red-700' : selectedDevice.isGhost ? 'text-amber-700' : 'text-emerald-700']">{{ selectedDevice.isGhost ? 'GHOST / CM_PROB_PHANTOM' : (selectedDevice.problem || selectedDevice.status || 'OK') }}</div></div>
                 <div class="pc-property-card"><div class="label">Active / Best Driver</div><div class="value break-all">{{ selectedDevice.activeDriver || 'N/A' }}</div></div>
                 <div class="pc-property-card"><div class="label">Signer</div><div class="value break-all">{{ selectedDevice.signer || 'N/A' }}</div></div>

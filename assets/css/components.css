@@ -181,3 +181,9 @@ input, select, textarea {
   border-radius: 2px;
   padding: 0 1px;
 }
+
+
+/* Device Manager - Devices by Connection */
+.connection-tree-row {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}

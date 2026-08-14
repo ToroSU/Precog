@@ -78,6 +78,8 @@ createApp({
     const rawPnpInterfacesText = ref('');
     const rawScheduledTasksText = ref('');
     const pnpDeviceStatus = ref([]);
+    const parentDeviceRows = ref([]);
+    const expandedConnectionNodes = ref({});
     const activeSystemSection = ref('overview');
 
     // Debug evidence: raw published OEM INF text collected by Dowsing.
@@ -428,6 +430,234 @@ createApp({
       });
       return [...groups.entries()].map(([className, devices]) => ({ className, devices })).sort((a, b) => a.className.localeCompare(b.className));
     });
+
+
+    const connectionTopology = computed(() => {
+      const detailsById = new Map(
+        fullDeviceList.value
+          .filter(dev => dev && dev.instanceId)
+          .map(dev => [String(dev.instanceId).toLowerCase(), dev])
+      );
+
+      const nodes = new Map();
+
+      function ensureNode(instanceId, fallback = {}) {
+        const id = String(instanceId || '').trim();
+        if (!id) return null;
+        const key = id.toLowerCase();
+        if (!nodes.has(key)) {
+          const detail = detailsById.get(key);
+          nodes.set(key, {
+            key,
+            instanceId: id,
+            parentKey: '',
+            parentInstanceId: '',
+            name: (detail && detail.name) || fallback.name || fallback.FriendlyName || id,
+            className: (detail && detail.className) || fallback.className || fallback.Class || 'Unknown',
+            status: (detail && detail.status) || fallback.status || fallback.Status || '',
+            problem: (detail && detail.problem) || normalizeProblem(fallback.Problem || fallback.ConfigManagerErrorCode || ''),
+            isProblem: detail ? !!detail.isProblem : isProblemStatus(fallback.Status, fallback.Problem, fallback.ConfigManagerErrorCode),
+            isGhost: detail ? !!detail.isGhost : isGhostProblemRecord(fallback),
+            device: detail || null,
+            children: [],
+            synthetic: !detail
+          });
+        } else {
+          const node = nodes.get(key);
+          const detail = detailsById.get(key);
+          if (detail) {
+            node.device = detail;
+            node.name = detail.name || node.name;
+            node.className = detail.className || node.className;
+            node.status = detail.status || node.status;
+            node.problem = detail.problem || node.problem;
+            node.isProblem = !!detail.isProblem;
+            node.isGhost = !!detail.isGhost;
+            node.synthetic = false;
+          }
+        }
+        return nodes.get(key);
+      }
+
+      parentDeviceRows.value.forEach(row => {
+        const childId = row.InstanceId || row.instanceId || '';
+        if (!childId) return;
+
+        const node = ensureNode(childId, row);
+        if (!node) return;
+
+        const parentId = String(row.ParentInstanceId || row.parentInstanceId || '').trim();
+        if (parentId && parentId.toLowerCase() !== node.key) {
+          const parent = ensureNode(parentId, { FriendlyName: parentId, Class: 'Connection Root' });
+          if (parent) {
+            node.parentKey = parent.key;
+            node.parentInstanceId = parent.instanceId;
+          }
+        }
+      });
+
+      // Include loaded devices even if the parent collector did not return a row for one.
+      fullDeviceList.value.forEach(dev => {
+        if (dev && dev.instanceId) ensureNode(dev.instanceId, dev);
+      });
+
+      nodes.forEach(node => { node.children = []; });
+      const roots = [];
+
+      nodes.forEach(node => {
+        const parent = node.parentKey ? nodes.get(node.parentKey) : null;
+        if (parent && parent.key !== node.key) {
+          parent.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      });
+
+      const sortNodes = list => {
+        list.sort((a, b) =>
+          String(a.className || '').localeCompare(String(b.className || '')) ||
+          String(a.name || '').localeCompare(String(b.name || '')) ||
+          String(a.instanceId || '').localeCompare(String(b.instanceId || ''))
+        );
+        list.forEach(node => sortNodes(node.children));
+      };
+      sortNodes(roots);
+
+      return {
+        nodes,
+        roots,
+        edgeCount: [...nodes.values()].filter(node => !!node.parentKey).length,
+        collectedCount: parentDeviceRows.value.length
+      };
+    });
+
+    function connectionNodeMatches(node) {
+      if (!node) return false;
+      const dev = node.device || node;
+      if (deviceOnlyProblem.value && !node.isProblem) return false;
+      if (deviceOnlyHighlighted.value && !isHighlightedDevice(dev)) return false;
+
+      const q = deviceKeyword.value.toLowerCase();
+      if (!q) return true;
+
+      const text = [
+        node.name,
+        node.instanceId,
+        node.parentInstanceId,
+        node.className,
+        node.status,
+        node.problem,
+        dev.activeDriver,
+        dev.signer,
+        ...(dev.hwids || [])
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      return text.includes(q);
+    }
+
+    const connectionFilterActive = computed(() =>
+      !!deviceKeyword.value || deviceOnlyProblem.value || deviceOnlyHighlighted.value
+    );
+
+    const connectionVisibleKeys = computed(() => {
+      if (!connectionFilterActive.value) return null;
+
+      const visible = new Set();
+      const topology = connectionTopology.value;
+
+      topology.nodes.forEach(node => {
+        if (!connectionNodeMatches(node)) return;
+
+        let current = node;
+        const visited = new Set();
+        while (current && !visited.has(current.key)) {
+          visited.add(current.key);
+          visible.add(current.key);
+          current = current.parentKey ? topology.nodes.get(current.parentKey) : null;
+        }
+      });
+
+      return visible;
+    });
+
+    function isConnectionExpanded(node, depth = 0) {
+      if (!node) return false;
+      if (connectionFilterActive.value) return true;
+      if (Object.prototype.hasOwnProperty.call(expandedConnectionNodes.value, node.key)) {
+        return !!expandedConnectionNodes.value[node.key];
+      }
+      // Give the user an immediately useful topology without flooding the page.
+      return depth < 2;
+    }
+
+    function toggleConnectionNode(node, depth = 0) {
+      if (!node || !node.children || !node.children.length) return;
+      expandedConnectionNodes.value = {
+        ...expandedConnectionNodes.value,
+        [node.key]: !isConnectionExpanded(node, depth)
+      };
+    }
+
+    const connectionTreeRows = computed(() => {
+      if (!parentDeviceRows.value.length) return [];
+
+      const rows = [];
+      const visible = connectionVisibleKeys.value;
+      const visited = new Set();
+
+      function walk(node, depth) {
+        if (!node || visited.has(node.key)) return;
+        if (visible && !visible.has(node.key)) return;
+
+        visited.add(node.key);
+        rows.push({
+          ...node,
+          depth,
+          hasChildren: !!(node.children && node.children.length),
+          expanded: isConnectionExpanded(node, depth)
+        });
+
+        if (node.children && node.children.length && isConnectionExpanded(node, depth)) {
+          node.children.forEach(child => walk(child, depth + 1));
+        }
+      }
+
+      connectionTopology.value.roots.forEach(root => walk(root, 0));
+      return rows;
+    });
+
+    function getParentConnection(instanceId) {
+      const key = String(instanceId || '').toLowerCase();
+      if (!key) return null;
+      const node = connectionTopology.value.nodes.get(key);
+      if (!node || !node.parentKey) return null;
+      return connectionTopology.value.nodes.get(node.parentKey) || null;
+    }
+
+    function selectConnectionDevice(node) {
+      if (!node) return;
+      if (node.device) {
+        selectedDevice.value = node.device;
+        return;
+      }
+
+      selectedDevice.value = {
+        name: node.name || 'Unknown Device',
+        instanceId: node.instanceId || '',
+        className: node.className || 'Unknown',
+        status: node.status || '',
+        problem: node.problem || '',
+        isProblem: !!node.isProblem,
+        isGhost: !!node.isGhost,
+        activeDriver: '',
+        activeDriverStatus: '',
+        signer: '',
+        version: '',
+        hwids: [],
+        matchingDrivers: [],
+        deviceStatus: getDeviceStatus(node.instanceId)
+      };
+    }
 
     const disabledDevices = computed(() => fullDeviceList.value.filter(dev => {
       const statusText = [
@@ -879,6 +1109,7 @@ createApp({
           return;
         }
         if (name.includes('_dism_driverinfo')) parseDism(text);
+        else if (name.includes('_pnpparentdevices.csv')) parentDeviceRows.value = parseCsv(text);
         else if (name.includes('_pnpdevicestatus.json')) parsePnpDeviceStatus(text);
         else if (name.includes('_pnpdeviceinfo.csv')) pnpCsvDevices.value = parseCsv(text);
         else if (name.includes('_pnpdeviceinfo')) parsePnp(text);
@@ -1229,7 +1460,10 @@ createApp({
       selectedPanel.value = 'deviceManager';
     }
 
-    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, appFilterKeyword, appFilterInput, appPublisherFilter, appAudienceFilter, startupAppsExpanded, appPublisherOptions, setAppAudience, clearAppFilter, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards,
+    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, appFilterKeyword, appFilterInput, appPublisherFilter, appAudienceFilter, startupAppsExpanded, appPublisherOptions, setAppAudience, clearAppFilter, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, parentDeviceRows, expandedConnectionNodes,
+      connectionTopology, connectionTreeRows, connectionFilterActive,
+      isConnectionExpanded, toggleConnectionNode, selectConnectionDevice, getParentConnection,
+      activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards,
       oemInfContents, infViewerOpen, infViewerName, infViewerContent, infViewerSearch,
       infViewerCopyLabel, infViewerRenderedContent, infViewerMatchCount,
       hasOriginalInfContent, openInfViewer, closeInfViewer, copyInfContent };
