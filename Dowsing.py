@@ -1,5 +1,6 @@
 import ctypes
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -304,6 +305,7 @@ def build_collectors(mode: str) -> List[Tuple[str, Callable[[Path], Tuple[bool, 
         ("Driver Query", collect_driver_query),
         ("Driver Query CSV", collect_driver_query_csv),
         ("Windows Driver CSV", collect_windows_driver_csv),
+        ("OEM INF Collection", collect_oem_inf_files),
         ("MSInfo32", collect_msinfo32),
         ("DXDiag", collect_dxdiag),
         ("Catalog Map", collect_catalog_map),
@@ -550,6 +552,60 @@ Get-WindowsDriver -Online -All |
     ok, content = run_powershell(ps_script, timeout=240)
     path.write_text(content or "", encoding="utf-8-sig", errors="replace")
     return (ok and path.stat().st_size > 0), ("OK" if ok else content)
+
+
+def collect_oem_inf_files(out_dir: Path) -> Tuple[bool, str]:
+    """Collect published OEM INF files for Precog Driver Status deep inspection.
+
+    Debug mode only. Files are copied from %WINDIR%\\INF\\oem*.inf into:
+        OEM_INF\\oem0.inf
+        OEM_INF\\oem1.inf
+        ...
+
+    Only the published INF text files are collected; PNF files and other
+    DriverStore payloads are intentionally excluded.
+    """
+    windows_dir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    source_dir = windows_dir / "INF"
+    target_dir = out_dir / "OEM_INF"
+
+    try:
+        if not source_dir.exists():
+            return False, f"source not found: {source_dir}"
+
+        inf_files = sorted(
+            source_dir.glob("oem*.inf"),
+            key=lambda p: (
+                int(p.stem[3:]) if p.stem[3:].isdigit() else 10**9,
+                p.name.lower(),
+            ),
+        )
+
+        if not inf_files:
+            return False, "no OEM INF files found"
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        failed = []
+
+        for source in inf_files:
+            try:
+                shutil.copy2(source, target_dir / source.name)
+                copied += 1
+            except Exception as exc:
+                failed.append(f"{source.name}: {exc}")
+
+        if copied == 0:
+            return False, "failed to copy OEM INF files"
+
+        if failed:
+            return True, f"Copied {copied}/{len(inf_files)} OEM INF files; {len(failed)} failed"
+
+        return True, f"Copied {copied} OEM INF files"
+
+    except Exception as exc:
+        return False, str(exc)
 
 
 def collect_msinfo32(out_dir: Path) -> Tuple[bool, str]:
