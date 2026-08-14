@@ -787,7 +787,19 @@
                   <div class="text-xl font-black tracking-tight mt-1 break-all">{{ selectedOem.publishedName || 'N/A' }}</div>
                   <div class="text-sm text-slate-300 mt-1 break-all">{{ selectedOem.originalName || 'N/A' }}</div>
                 </div>
-                <div class="flex flex-wrap gap-2 items-center shrink-0"><span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span><span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span><span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span></div>
+                <div class="flex flex-col items-end gap-2 shrink-0">
+                  <div class="flex flex-wrap gap-2 items-center justify-end">
+                    <span :class="badgeClass(statusLabel(selectedOem))" class="px-3 py-2 rounded-full text-xs font-black">{{ statusLabel(selectedOem) }}</span>
+                    <span v-if="checkOemStatus(selectedOem).isProblem" class="px-3 py-2 rounded-full text-xs font-black bg-red-100 text-red-700">SYS ERR</span>
+                    <span v-if="isNonWhql(selectedOem)" class="px-3 py-2 rounded-full text-xs font-black bg-yellow-100 text-yellow-700">NON-WHQL</span>
+                  </div>
+                  <button
+                    v-if="hasOriginalInfContent(selectedOem)"
+                    @click="openInfViewer(selectedOem)"
+                    class="px-3 py-2 rounded-xl border border-slate-500/70 bg-slate-800 text-slate-100 hover:bg-slate-700 text-xs font-black transition-colors">
+                    See Original Content
+                  </button>
+                </div>
               </div>
               <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-x-6 gap-y-3 border-t border-slate-700 pt-4">
                 <div><div class="text-[10px] uppercase tracking-widest font-black text-slate-400">Published Name</div><div class="text-sm font-bold mt-1 break-all">{{ selectedOem.publishedName || 'N/A' }}</div></div>
@@ -824,6 +836,48 @@
         </div>
       </div>
     </template>
+
+    <!-- OEM INF Content Viewer -->
+    <div
+      v-if="infViewerOpen"
+      class="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-[1px] flex items-center justify-center p-4"
+      @click.self="closeInfViewer"
+      @keydown.esc.window="closeInfViewer">
+      <div class="w-full max-w-6xl h-[86vh] bg-white rounded-3xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col">
+        <div class="px-5 py-4 border-b border-slate-200 bg-slate-50 flex flex-col lg:flex-row lg:items-center gap-3 lg:justify-between shrink-0">
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-[0.2em] font-black text-slate-400">Original INF Content</div>
+            <div class="font-black text-slate-900 mt-1 break-all">{{ infViewerName }}</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative">
+              <input
+                id="infViewerSearchInput"
+                v-model="infViewerSearch"
+                type="text"
+                placeholder="Find in INF..."
+                class="w-64 max-w-[60vw] rounded-xl border border-slate-300 bg-white px-3 py-2 pr-16 text-xs outline-none focus:ring-2 focus:ring-slate-300" />
+              <span
+                v-if="infViewerSearch"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
+                {{ infViewerMatchCount }}
+              </span>
+            </div>
+            <button @click="copyInfContent" class="pc-btn pc-btn-light border border-slate-300">{{ infViewerCopyLabel }}</button>
+            <button @click="closeInfViewer" class="pc-btn bg-slate-900 text-white hover:bg-slate-700">Close</button>
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-0 bg-[#0b1220] overflow-auto custom-scrollbar">
+          <pre class="inf-content-viewer m-0 p-5 text-[12px] leading-5 text-slate-200 font-mono whitespace-pre min-w-max" v-html="infViewerRenderedContent"></pre>
+        </div>
+
+        <div class="px-5 py-2.5 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 shrink-0 flex items-center justify-between gap-3">
+          <span>Source: Dowsing Debug / OEM_INF</span>
+          <span>{{ (infViewerContent || '').split(/\r?\n/).length }} lines</span>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="./assets/js/utils.js"></script>
   <script src="./assets/js/app.js"></script>

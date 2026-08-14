@@ -80,6 +80,15 @@ createApp({
     const pnpDeviceStatus = ref([]);
     const activeSystemSection = ref('overview');
 
+    // Debug evidence: raw published OEM INF text collected by Dowsing.
+    // Keyed by published name, e.g. "oem0.inf".
+    const oemInfContents = ref({});
+    const infViewerOpen = ref(false);
+    const infViewerName = ref('');
+    const infViewerContent = ref('');
+    const infViewerSearch = ref('');
+    const infViewerCopyLabel = ref('Copy');
+
 
     const statusOptions = ['All', 'Installed', 'No Device', 'Problem'];
 
@@ -88,6 +97,99 @@ createApp({
     function navClass(panel) {
       return ['px-4 py-2 rounded-xl border text-sm font-semibold', selectedPanel.value === panel ? 'bg-slate-900 text-white border-slate-900' : 'bg-white hover:bg-slate-50'].join(' ');
     }
+
+    function normalizedOemInfName(value) {
+      const name = String(value || '').split('/').pop().trim().toLowerCase();
+      return /^oem\d+\.inf$/i.test(name) ? name : '';
+    }
+
+    function hasOriginalInfContent(driver) {
+      const key = normalizedOemInfName(driver && driver.publishedName);
+      return !!(key && Object.prototype.hasOwnProperty.call(oemInfContents.value, key));
+    }
+
+    function openInfViewer(driver) {
+      const key = normalizedOemInfName(driver && driver.publishedName);
+      if (!key || !Object.prototype.hasOwnProperty.call(oemInfContents.value, key)) return;
+      infViewerName.value = key;
+      infViewerContent.value = oemInfContents.value[key] || '';
+      infViewerSearch.value = '';
+      infViewerCopyLabel.value = 'Copy';
+      infViewerOpen.value = true;
+      nextTick(() => {
+        const input = document.getElementById('infViewerSearchInput');
+        if (input) input.focus();
+      });
+    }
+
+    function closeInfViewer() {
+      infViewerOpen.value = false;
+      infViewerSearch.value = '';
+    }
+
+    async function copyInfContent() {
+      const text = infViewerContent.value || '';
+      if (!text) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        infViewerCopyLabel.value = 'Copied';
+      } catch (err) {
+        console.error('Copy INF content failed', err);
+        infViewerCopyLabel.value = 'Copy failed';
+      }
+      window.setTimeout(() => { infViewerCopyLabel.value = 'Copy'; }, 1400);
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    const infViewerRenderedContent = computed(() => {
+      const raw = infViewerContent.value || '';
+      const query = (infViewerSearch.value || '').trim();
+      if (!query) return escapeHtml(raw);
+
+      const escapedRaw = escapeHtml(raw);
+      const escapedQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!escapedQuery) return escapedRaw;
+
+      try {
+        return escapedRaw.replace(new RegExp(escapedQuery, 'gi'), match => `<mark class="inf-search-hit">${match}</mark>`);
+      } catch (_) {
+        return escapedRaw;
+      }
+    });
+
+    const infViewerMatchCount = computed(() => {
+      const raw = infViewerContent.value || '';
+      const query = (infViewerSearch.value || '').trim();
+      if (!raw || !query) return 0;
+      let count = 0;
+      let pos = 0;
+      const haystack = raw.toLowerCase();
+      const needle = query.toLowerCase();
+      while ((pos = haystack.indexOf(needle, pos)) !== -1) {
+        count += 1;
+        pos += Math.max(needle.length, 1);
+      }
+      return count;
+    });
 
     const providers = computed(() => [...new Set(dismDrivers.value.map(d => d.providerName).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
     const winRegParsed = computed(() => parseWindowsVersionReg(rawWindowsVersionReg.value));
@@ -767,8 +869,15 @@ createApp({
     }
 
     function parseLoadedFile(fileName, text) {
-      const name = (fileName || '').split('/').pop().toLowerCase();
+      const fullName = String(fileName || '').replace(/\\/g, '/');
+      const name = fullName.split('/').pop().toLowerCase();
       try {
+        // Dowsing Debug mode stores raw published INF files under OEM_INF/.
+        // Accept the folder explicitly so unrelated .inf files are not mistaken for evidence.
+        if (/(^|\/)oem_inf\/oem\d+\.inf$/i.test(fullName)) {
+          oemInfContents.value[name] = text || '';
+          return;
+        }
         if (name.includes('_dism_driverinfo')) parseDism(text);
         else if (name.includes('_pnpdevicestatus.json')) parsePnpDeviceStatus(text);
         else if (name.includes('_pnpdeviceinfo.csv')) pnpCsvDevices.value = parseCsv(text);
@@ -817,7 +926,7 @@ createApp({
       files.forEach(file => {
         const reader = new FileReader();
         reader.onload = evt => {
-          parseLoadedFile(file.name, evt.target.result);
+          parseLoadedFile(file.webkitRelativePath || file.name, evt.target.result);
         };
         reader.readAsText(file);
       });
@@ -1120,6 +1229,9 @@ createApp({
       selectedPanel.value = 'deviceManager';
     }
 
-    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, appFilterKeyword, appFilterInput, appPublisherFilter, appAudienceFilter, startupAppsExpanded, appPublisherOptions, setAppAudience, clearAppFilter, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards };
+    return { dragOver, loadedFileNames, loadedSourceName, selectedPanel, deviceManagerView, keyword, driverFilterInput, clearDriverFilter, filterProvider, filterStatus, selectedOem, selectedDevice, deviceKeyword, deviceFilterInput, clearDeviceFilter, deviceOnlyProblem, deviceOnlyHighlighted, selectedProblemTab, collapsedDeviceClasses, dismDrivers, pnpDevices, pnpCsvDevices, problemDevices, pnpProblemDevices, pnpProblemCsvDevices, catalogMap, sysInfo, systemSummary, collectionStatus, runLogText, rawWindowsVersionReg, winRegParsed, statusOptions, hasData, providers, systemHeadline, windowsReleaseLabel, secureBootClass, problemDevicesCombined, ghostDevices, summaryCards, collectionOkCount, collectionMissingCount, systemHealthLoadedCount, systemInfoGeneratedTime, hardwareSummaryRows, finalFilteredDrivers, matchedPnpDevices, fullDeviceList, filteredDeviceGroups, disabledDevices, platformHealthCards, powerRequestStatus, healthStatusClass, rawDxDiagText, rawPowerCfgA, rawPowerCfgRequests, rawPowerCfgLastWake, rawPowerCfgWakeArmed, rawSleepStudyText, rawEnergyReportText, displayAudioCameraRows, usbTypecRows, vendorRows, hardwareInventory, platformConfigurationSections, platformConfigurationHeadline, resetTool, handleBatchUpload, handleZipUpload, handleDrop, checkOemStatus, statusLabel, badgeClass, getProblemData, getSignerSummary, isNonWhql, collectionBadgeClass, driverStatusClass, getCatalogFileName, jsonFilter, regFilter, filteredSystemSummary, filteredWinReg, onDragEnter, onDragOver, onDragLeave, analyzeDriver, showDecodedReg, formatRegValue, formatBiosReleaseDate, getDeviceHuntInfo, navClass, isHighlightedDevice, getDriverObjectByName, openDriverFromDevice, openDeviceFromDriver, openProblemDevice, showDeviceOverview, getDeviceCategoryEmoji, isGhostProblemRecord, isDeviceClassCollapsed, toggleDeviceClass, openFolderPicker, openZipPicker, installedAppsWin32, installedAppsAppx, provisionedApps, startupApps, installedUpdates, servicesRows, scheduledTasksRows, showMicrosoftApps, appFilterKeyword, appFilterInput, appPublisherFilter, appAudienceFilter, startupAppsExpanded, appPublisherOptions, setAppAudience, clearAppFilter, allCombinedInstalledApps, combinedInstalledApps, allStartupApps, filteredStartupApps, appsOverviewCards, rawDefaultAppsText, rawPowerPlanText, rawIPConfigText, rawPnpInterfacesText, rawScheduledTasksText, pnpDeviceStatus, activeSystemSection, getDeviceStatus, scrollSystemSection, operationsLogCards,
+      oemInfContents, infViewerOpen, infViewerName, infViewerContent, infViewerSearch,
+      infViewerCopyLabel, infViewerRenderedContent, infViewerMatchCount,
+      hasOriginalInfContent, openInfViewer, closeInfViewer, copyInfContent };
   }
 }).mount('#app');

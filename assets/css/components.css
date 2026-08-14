@@ -169,3 +169,15 @@ input, select, textarea {
   border-color: #d8dee8;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #c5ced9; }
+
+
+/* OEM INF Content Viewer */
+.inf-content-viewer {
+  tab-size: 4;
+}
+.inf-search-hit {
+  background: #fde68a;
+  color: #0f172a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
