@@ -73,6 +73,7 @@ OUTPUT_FILES = {
     "IPConfig TXT": "_IPConfig.txt",
     "PnP Interfaces TXT": "_PnpInterfaces.txt",
     "PnP Device Status JSON": "_PnpDeviceStatus.json",
+    "PnP Parent Devices CSV": "_PnpParentDevices.csv",
     "Collection Status": "_CollectionStatus.txt",
     "Run Log": "_RunLog.txt",
 }
@@ -329,6 +330,7 @@ def build_collectors(mode: str) -> List[Tuple[str, Callable[[Path], Tuple[bool, 
         ("Power Plan", collect_power_plan),
         ("IPConfig", collect_ipconfig),
         ("PnP Interfaces", collect_pnp_interfaces),
+        ("Parent Device Collection", collect_pnp_parent_devices),
         ("PnP Device Status", collect_pnp_device_status),
     ]
 
@@ -1406,6 +1408,79 @@ def collect_ipconfig(out_dir: Path) -> Tuple[bool, str]:
 def collect_pnp_interfaces(out_dir: Path) -> Tuple[bool, str]:
     path = out_dir / OUTPUT_FILES["PnP Interfaces TXT"]
     return run_command(["pnputil", "/enum-interfaces"], path, timeout=180)
+
+
+def collect_pnp_parent_devices(out_dir: Path) -> Tuple[bool, str]:
+    """Collect the parent relationship for every PnP device.
+
+    Debug mode only. The resulting CSV is intended for Precog's future
+    "Devices by Connection" view. Each row keeps the child device identity
+    together with DEVPKEY_Device_Parent so Precog can rebuild the hierarchy.
+
+    Output:
+        _PnpParentDevices.csv
+
+    Columns:
+        Class
+        FriendlyName
+        InstanceId
+        ParentInstanceId
+        Status
+        Problem
+        ConfigManagerErrorCode
+    """
+    path = out_dir / OUTPUT_FILES["PnP Parent Devices CSV"]
+    ps_script = r"""
+$rows = foreach ($device in (Get-PnpDevice -ErrorAction SilentlyContinue)) {
+    $parentId = $null
+
+    try {
+        $parentProperty = Get-PnpDeviceProperty `
+            -InstanceId $device.InstanceId `
+            -KeyName 'DEVPKEY_Device_Parent' `
+            -ErrorAction Stop
+
+        if ($null -ne $parentProperty) {
+            $parentId = [string]$parentProperty.Data
+        }
+    }
+    catch {
+        $parentId = $null
+    }
+
+    [PSCustomObject]@{
+        Class                  = [string]$device.Class
+        FriendlyName           = [string]$device.FriendlyName
+        InstanceId             = [string]$device.InstanceId
+        ParentInstanceId       = [string]$parentId
+        Status                 = [string]$device.Status
+        Problem                = [string]$device.Problem
+        ConfigManagerErrorCode = [string]$device.ConfigManagerErrorCode
+    }
+}
+
+$rows |
+    Sort-Object Class,FriendlyName,InstanceId |
+    ConvertTo-Csv -NoTypeInformation
+"""
+    ok, content = run_powershell(ps_script, timeout=300)
+
+    if ok and not content.strip():
+        content = (
+            '"Class","FriendlyName","InstanceId","ParentInstanceId",'
+            '"Status","Problem","ConfigManagerErrorCode"\n'
+        )
+
+    path.write_text(content or "", encoding="utf-8-sig", errors="replace")
+
+    if not ok:
+        return False, content or "PowerShell collection failed"
+
+    if not path.exists() or path.stat().st_size == 0:
+        return False, "Parent device CSV was not created"
+
+    row_count = max(0, len([line for line in content.splitlines() if line.strip()]) - 1)
+    return True, f"Collected parent relationship for {row_count} PnP devices"
 
 
 def collect_pnp_device_status(out_dir: Path) -> Tuple[bool, str]:
